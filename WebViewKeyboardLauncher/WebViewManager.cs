@@ -8,7 +8,7 @@ public class WebViewManager
 {
     private readonly WebView2 _webView;
     private const string REGISTRY_KEY = @"SOFTWARE\WebViewKeyboardLauncher";
-    private const string DEFAULT_URL = "https://promanage.sanovel.com.tr/sanovel/ui";
+    private const string DEFAULT_URL = "https://hsezgin.github.io/WebViewKeyboardLauncher/welcome.html";
 
     public event Action? OnFocusReceived;
 
