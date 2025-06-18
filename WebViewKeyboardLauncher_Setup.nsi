@@ -1,4 +1,4 @@
-; WebView Keyboard Launcher Professional Installer
+; WebView Keyboard Launcher - Fixed Installer (No Service)
 
 !define APPNAME "WebView Keyboard Launcher"
 !define COMPANYNAME "SezginBilge"
@@ -12,27 +12,35 @@ InstallDir "$PROGRAMFILES64\${APPNAME}"
 Name "${APPNAME}"
 outFile "WebViewKeyboardLauncher_Setup.exe"
 
+; Modern UI includes
+!include MUI2.nsh
 !include LogicLib.nsh
 !include nsDialogs.nsh
 !include FileFunc.nsh
+
+; Modern UI settings
+!define MUI_ABORTWARNING
+!define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
+!define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall.ico"
 
 ; Custom install types
 InstType "Full Installation"
 InstType "Minimal Installation"
 
 ; Pages
-Page license
-Page components
+!insertmacro MUI_PAGE_LICENSE "LICENSE.txt"
+!insertmacro MUI_PAGE_COMPONENTS
 Page custom nsDialogsPageCreate nsDialogsPageLeave ; Custom URL page
-Page directory
-Page instfiles
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
 Page custom FinishPageCreate FinishPageLeave ; Custom finish page
 
-UninstPage uninstConfirm
-UninstPage instfiles
+; Uninstaller pages
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
 
-; License file (create license.txt in your project)
-LicenseData "license.txt"
+; Language
+!insertmacro MUI_LANGUAGE "English"
 
 ; Variables for custom URL input
 Var Dialog
@@ -40,8 +48,6 @@ Var UrlTextBox
 Var UrlValue
 Var StartWithWindowsCheckbox
 Var StartWithWindowsValue
-Var CreateServiceCheckbox
-Var CreateServiceValue
 
 ; Custom URL configuration page
 Function nsDialogsPageCreate
@@ -68,12 +74,8 @@ Function nsDialogsPageCreate
     Pop $StartWithWindowsCheckbox
     ${NSD_Check} $StartWithWindowsCheckbox ; Default checked
     
-    ; Service checkbox
-    ${NSD_CreateCheckbox} 10 110 350 15 "Install as Windows Service (advanced)"
-    Pop $CreateServiceCheckbox
-    
     ; Description
-    ${NSD_CreateLabel} 10 140 350 40 "The application will open this URL when started. You can change this later by reinstalling or modifying the Windows Registry."
+    ${NSD_CreateLabel} 10 120 350 40 "The application will open this URL when started. You can change this later by reinstalling or modifying the Windows Registry."
     Pop $0
 
     nsDialogs::Show
@@ -82,7 +84,6 @@ FunctionEnd
 Function nsDialogsPageLeave
     ${NSD_GetText} $UrlTextBox $UrlValue
     ${NSD_GetState} $StartWithWindowsCheckbox $StartWithWindowsValue
-    ${NSD_GetState} $CreateServiceCheckbox $CreateServiceValue
     
     ; Validate URL
     ${If} $UrlValue == ""
@@ -133,7 +134,6 @@ Section "Core Application" SecCore
     WriteRegStr HKCU "Software\WebViewKeyboardLauncher" "Homepage" $UrlValue
     WriteRegStr HKCU "Software\WebViewKeyboardLauncher" "InstallPath" $INSTDIR
     WriteRegStr HKCU "Software\WebViewKeyboardLauncher" "Version" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
-    WriteRegStr HKCU "Software\WebViewKeyboardLauncher" "InstallDate" $R0
     
     ; Uninstaller
     WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -170,47 +170,15 @@ Section "Auto Start with Windows" SecAutoStart
     ${EndIf}
 SectionEnd
 
-Section "Windows Service" SecService
-    SectionIn 1 ; Optional
-    
-    ; Only if user selected this option
-    ${If} $CreateServiceValue == 1
-        DetailPrint "Creating Windows Service..."
-        
-        ; Create service using sc command
-        nsExec::ExecToLog 'sc create "WebViewKeyboardLauncher" binPath= "$INSTDIR\WebViewKeyboardLauncher.exe" start= auto DisplayName= "WebView Keyboard Launcher Service"'
-        Pop $0
-        
-        ${If} $0 == 0
-            DetailPrint "Service created successfully"
-            ; Start the service
-            nsExec::ExecToLog 'sc start "WebViewKeyboardLauncher"'
-        ${Else}
-            DetailPrint "Service creation failed, using startup entry instead"
-            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher" '"$INSTDIR\WebViewKeyboardLauncher.exe"'
-        ${EndIf}
-    ${EndIf}
-SectionEnd
-
 ; Section descriptions
-LangString DESC_SecCore ${LANG_ENGLISH} "Core application files (required)"
-LangString DESC_SecShortcuts ${LANG_ENGLISH} "Start menu and desktop shortcuts"
-LangString DESC_SecAutoStart ${LANG_ENGLISH} "Automatically start with Windows"
-LangString DESC_SecService ${LANG_ENGLISH} "Install as Windows Service (advanced users)"
-
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-!insertmacro MUI_DESCRIPTION_TEXT ${SecCore} $(DESC_SecCore)
-!insertmacro MUI_DESCRIPTION_TEXT ${SecShortcuts} $(DESC_SecShortcuts)
-!insertmacro MUI_DESCRIPTION_TEXT ${SecAutoStart} $(DESC_SecAutoStart)
-!insertmacro MUI_DESCRIPTION_TEXT ${SecService} $(DESC_SecService)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecCore} "Core application files (required)"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecShortcuts} "Start menu and desktop shortcuts"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecAutoStart} "Automatically start with Windows"
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ; Uninstaller
 Section "Uninstall"
-    ; Stop and remove service if exists
-    nsExec::ExecToLog 'sc stop "WebViewKeyboardLauncher"'
-    nsExec::ExecToLog 'sc delete "WebViewKeyboardLauncher"'
-    
     ; Remove startup entry
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher"
     
@@ -250,12 +218,5 @@ Function .onInit
     ${GetOptions} $R0 "/AUTOSTART=" $StartWithWindowsValue
     ${If} ${Errors}
         StrCpy $StartWithWindowsValue "1"
-    ${EndIf}
-    
-    ; Service parameter
-    ClearErrors
-    ${GetOptions} $R0 "/SERVICE=" $CreateServiceValue
-    ${If} ${Errors}
-        StrCpy $CreateServiceValue "0"
     ${EndIf}
 FunctionEnd
