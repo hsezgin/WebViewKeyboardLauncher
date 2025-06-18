@@ -125,9 +125,9 @@ Section "Core Application" SecCore
     SetOutPath $INSTDIR
     
     ; Application files
-    File "WebViewKeyboardLauncher\bin\Release\net8.0-windows\WebViewKeyboardLauncher.exe"
-    File /nonfatal "WebViewKeyboardLauncher\bin\Release\net8.0-windows\*.dll"
-    File /nonfatal "WebViewKeyboardLauncher\bin\Release\net8.0-windows\*.json"
+    File "${SOURCE_DIR}\WebViewKeyboardLauncher.exe"
+    File /nonfatal "${SOURCE_DIR}\*.dll"
+    File /nonfatal "${SOURCE_DIR}\*.json"
     
     ; Registry - Homepage URL
     WriteRegStr HKCU "Software\WebViewKeyboardLauncher" "Homepage" $UrlValue

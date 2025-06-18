@@ -2,7 +2,7 @@ param(
     [string]$Configuration = "Release",
     [string]$Platform = "x64",
     [string]$Version = "1.0.0",
-    [string]$OutputDir = ".\dist",
+    [string]$OutputDir = ".\\dist",
     [switch]$SkipBuild,
     [switch]$SkipSetup,
     [switch]$OpenOutput
@@ -16,9 +16,9 @@ Write-Host ""
 
 $ErrorActionPreference = "Stop"
 $ProjectName = "WebViewKeyboardLauncher"
-$ProjectPath = ".\$ProjectName\$ProjectName.csproj"
-$NSISScript = ".\WebViewKeyboardLauncher_Setup.nsi"
-$NSISPath = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+$ProjectPath = ".\\$ProjectName\\$ProjectName.csproj"
+$NSISScript = ".\\WebViewKeyboardLauncher_Setup.nsi"
+$NSISPath = "${env:ProgramFiles(x86)}\\NSIS\\makensis.exe"
 
 # Validate paths
 if (!(Test-Path $ProjectPath)) {
@@ -66,7 +66,7 @@ if (!$SkipBuild) {
     }
 
     # Verify build output
-    $BuildOutput = ".\$ProjectName\bin\$Configuration\net8.0-windows\$ProjectName.exe"
+    $BuildOutput = ".\\$ProjectName\\bin\\$Configuration\\net8.0-windows\\$ProjectName.exe"
     if (!(Test-Path $BuildOutput)) {
         Write-Error "Build output not found: $BuildOutput"
         exit 1
@@ -81,13 +81,13 @@ else {
 
 # Step 2: Create Portable Package
 Write-Host "📦 Creating portable package..." -ForegroundColor Yellow
-$PortableDir = "$OutputDir\Portable"
+$PortableDir = "$OutputDir\\Portable"
 New-Item -ItemType Directory -Path $PortableDir -Force | Out-Null
 
-$SourceDir = ".\$ProjectName\bin\$Configuration\net8.0-windows"
+$SourceDir = ".\\$ProjectName\\bin\\$Configuration\\net8.0-windows"
 Copy-Item "$SourceDir\$ProjectName.exe" -Destination $PortableDir
-Copy-Item "$SourceDir\*.dll" -Destination $PortableDir -ErrorAction SilentlyContinue
-Copy-Item "$SourceDir\*.json" -Destination $PortableDir -ErrorAction SilentlyContinue
+Copy-Item "$SourceDir\\*.dll" -Destination $PortableDir -ErrorAction SilentlyContinue
+Copy-Item "$SourceDir\\*.json" -Destination $PortableDir -ErrorAction SilentlyContinue
 
 # Create portable launcher script
 $PortableLauncher = @"
@@ -113,7 +113,7 @@ echo Starting application...
 start "" "$ProjectName.exe"
 "@
 
-$PortableLauncher | Out-File -FilePath "$PortableDir\Start.bat" -Encoding ASCII
+$PortableLauncher | Out-File -FilePath "$PortableDir\\Start.bat" -Encoding ASCII
 
 # Create portable README
 $PortableReadme = @"
@@ -144,12 +144,12 @@ Edit config.json to change:
 ## License: Apache 2.0
 "@
 
-$PortableReadme | Out-File -FilePath "$PortableDir\README.md" -Encoding UTF8
+$PortableReadme | Out-File -FilePath "$PortableDir\\README.md" -Encoding UTF8
 
 # Compress portable package
 Write-Host "🗜️  Compressing portable package..." -ForegroundColor Yellow
-$PortableZip = "$OutputDir\WebViewKeyboardLauncher-$Version-Portable.zip"
-Compress-Archive -Path "$PortableDir\*" -DestinationPath $PortableZip -Force
+$PortableZip = "$OutputDir\\WebViewKeyboardLauncher-$Version-Portable.zip"
+Compress-Archive -Path "$PortableDir\\*" -DestinationPath $PortableZip -Force
 $ZipInfo = Get-Item $PortableZip
 Write-Host "   📦 Created: $($ZipInfo.Name) ($([math]::Round($ZipInfo.Length / 1KB, 1)) KB)" -ForegroundColor Cyan
 
@@ -158,32 +158,37 @@ if (!$SkipSetup) {
     Write-Host "🔧 Creating NSIS installer..." -ForegroundColor Yellow
     try {
         # Update version in NSIS script (basic replacement)
+        $ResolvedSourceDir = Resolve-Path ".\$ProjectName\bin\$Configuration\net8.0-windows"
         $NSISContent = Get-Content $NSISScript -Raw
+        $NSISContent = "!define SOURCE_DIR `"$ResolvedSourceDir`"`n" + $NSISContent
         $NSISContent = $NSISContent -replace '!define VERSIONMAJOR \d+', "!define VERSIONMAJOR $($Version.Split('.')[0])"
         $NSISContent = $NSISContent -replace '!define VERSIONMINOR \d+', "!define VERSIONMINOR $($Version.Split('.')[1])"
         $NSISContent = $NSISContent -replace '!define VERSIONBUILD \d+', "!define VERSIONBUILD $($Version.Split('.')[2])"
         
-        # Fix license file path
-        if (Test-Path "LICENSE.txt") {
-            $NSISContent = $NSISContent -replace '"LICENSE\.txt"', '"LICENSE.txt"'
-        } elseif (Test-Path "LICENSE") {
-            $NSISContent = $NSISContent -replace '"LICENSE\.txt"', '"LICENSE"'
-        } else {
-            # Remove license page if no license file found
-            $NSISContent = $NSISContent -replace '!insertmacro MUI_PAGE_LICENSE.*', ''
-            Write-Warning "License file not found, skipping license page"
-        }
-        
         $TempNSIS = "$env:TEMP\WebViewKeyboardLauncher_Setup_Temp.nsi"
         $NSISContent | Out-File -FilePath $TempNSIS -Encoding UTF8
+
+        if (Test-Path "LICENSE.txt") {
+            Copy-Item "LICENSE.txt" -Destination (Split-Path $TempNSIS)
+        }
+        elseif (Test-Path "LICENSE") {
+            Copy-Item "LICENSE" -Destination (Split-Path $TempNSIS)
+            $NSISContent = $NSISContent -replace '"LICENSE\.txt"', '"LICENSE"'
+        }
+        else {
+            $NSISContent = $NSISContent -replace '!insertmacro MUI_PAGE_LICENSE.*', ''
+            $NSISContent = $NSISContent -replace 'LicenseData.*', ''
+            Write-Warning "License file not found, skipping license page"
+        }
         
         # Compile NSIS
         & $NSISPath $TempNSIS
         
         # Move to output directory
-        if (Test-Path ".\WebViewKeyboardLauncher_Setup.exe") {
-            $SetupFile = "$OutputDir\WebViewKeyboardLauncher-$Version-Setup.exe"
-            Move-Item ".\WebViewKeyboardLauncher_Setup.exe" $SetupFile -Force
+        $TempExePath = "$env:TEMP\WebViewKeyboardLauncher_Setup.exe"
+        if (Test-Path $TempExePath) {
+            $SetupFile = "$OutputDir\\WebViewKeyboardLauncher-$Version-Setup.exe"
+            Move-Item $TempExePath $SetupFile -Force
             
             $SetupInfo = Get-Item $SetupFile
             Write-Host "✅ NSIS installer created" -ForegroundColor Green
@@ -224,7 +229,7 @@ $ReleaseNotes = @"
 
 ### 📦 Installer (Recommended)
 - **File**: WebViewKeyboardLauncher-$Version-Setup.exe
-- **Size**: ~$(if (Test-Path "$OutputDir\WebViewKeyboardLauncher-$Version-Setup.exe") { [math]::Round((Get-Item "$OutputDir\WebViewKeyboardLauncher-$Version-Setup.exe").Length / 1KB, 1) } else { "XXX" }) KB
+- **Size**: ~$(if (Test-Path "$OutputDir\\WebViewKeyboardLauncher-$Version-Setup.exe") { [math]::Round((Get-Item "$OutputDir\\WebViewKeyboardLauncher-$Version-Setup.exe").Length / 1KB, 1) } else { "XXX" }) KB
 - **Features**: Auto-start, registry integration, uninstaller
 - **Usage**: Run as Administrator
 
@@ -260,7 +265,7 @@ SezginBilge
 Generated on $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 "@
 
-$ReleaseNotes | Out-File -FilePath "$OutputDir\RELEASE-NOTES.md" -Encoding UTF8
+$ReleaseNotes | Out-File -FilePath "$OutputDir\\RELEASE-NOTES.md" -Encoding UTF8
 
 # Step 5: Build Summary
 Write-Host ""
