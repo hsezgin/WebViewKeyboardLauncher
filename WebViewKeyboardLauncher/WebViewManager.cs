@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Microsoft.Win32;
 using System.Diagnostics;
@@ -35,9 +36,23 @@ public class WebViewManager
 
     public void Initialize()
     {
-        _webView.EnsureCoreWebView2Async(null).ContinueWith(_ =>
+        var userDataFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WebViewKeyboardLauncher");
+
+        var env = CoreWebView2Environment.CreateAsync(null, userDataFolder).Result;
+
+        _webView.EnsureCoreWebView2Async(env).ContinueWith(task =>
         {
-            RegisterFocusAndMessageListeners();
+            if (task.Status == TaskStatus.RanToCompletion)
+            {
+                RegisterFocusAndMessageListeners();
+                NavigateHomepage();
+            }
+            else
+            {
+                Debug.WriteLine($"[WebViewManager] WebView2 başlatılamadı: {task.Exception?.Message}");
+            }
         });
     }
 

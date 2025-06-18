@@ -19,6 +19,7 @@ $ProjectName = "WebViewKeyboardLauncher"
 $ProjectPath = ".\\$ProjectName\\$ProjectName.csproj"
 $NSISScript = ".\\WebViewKeyboardLauncher_Setup.nsi"
 $NSISPath = "${env:ProgramFiles(x86)}\\NSIS\\makensis.exe"
+$PublishDir = ".\$ProjectName\bin\$Configuration\net8.0-windows"
 
 # Validate paths
 if (!(Test-Path $ProjectPath)) {
@@ -57,7 +58,7 @@ if (!$SkipBuild) {
 
     Write-Host "🔨 Building project..." -ForegroundColor Yellow
     try {
-        dotnet build $ProjectPath -c $Configuration --no-restore --verbosity minimal
+        dotnet publish $ProjectPath -c $Configuration -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishReadyToRun=true -o $PublishDir
         Write-Host "✅ Build completed" -ForegroundColor Green
     }
     catch {
