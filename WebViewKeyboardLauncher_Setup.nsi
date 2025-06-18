@@ -1,5 +1,4 @@
-; WebView Keyboard Launcher - Fixed Installer (No Service)
-
+; WebView Keyboard Launcher
 !define APPNAME "WebView Keyboard Launcher"
 !define COMPANYNAME "SezginBilge"
 !define DESCRIPTION "Virtual keyboard launcher with WebView2"
