@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "WebViewKeyboardLauncher": {
+      "commandName": "Project",
+      "jsWebView2Debugging": false,
+      "nativeDebugging": true
+    }
+  }
+}
