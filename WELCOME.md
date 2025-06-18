@@ -37,7 +37,7 @@ Bu sayfayı kendi ihtiyaçlarınıza göre özelleştirebilirsiniz:
 
 - **Repository**: [hsezgin/WebViewKeyboardLauncher](https://github.com/hsezgin/WebViewKeyboardLauncher)
 - **Technology**: .NET 8, WebView2, Windows Forms
-- **License**: MIT
+- **License**: Apache2.0
 
 ---
 
