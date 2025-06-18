@@ -1,0 +1,15 @@
+title: WebView Keyboard Launcher
+description: Virtual keyboard launcher with WebView2
+baseurl: "/WebViewKeyboardLauncher"
+url: "https://hsezgin.github.io"
+
+markdown: kramdown
+highlighter: rouge
+theme: minima
+
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+
+# Build settings
+incremental: false
