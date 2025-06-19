@@ -1,4 +1,4 @@
-; WebView Keyboard Launcher
+; WebView Keyboard Launcher - 64-bit Registry Fixed Version
 !define APPNAME "WebView Keyboard Launcher"
 !define COMPANYNAME "SezginBilge"
 !define DESCRIPTION "Virtual keyboard launcher with WebView2"
@@ -6,16 +6,23 @@
 !define VERSIONMINOR 0
 !define VERSIONBUILD 0
 
+; Force 64-bit installer
 RequestExecutionLevel admin
 InstallDir "$PROGRAMFILES64\${APPNAME}"
 Name "${APPNAME}"
 outFile "WebViewKeyboardLauncher_Setup.exe"
+
+; Target x64 architecture explicitly
+!ifdef NSIS_WIN32_MAKENSIS
+  !error "This installer requires NSIS x64 version"
+!endif
 
 ; Modern UI includes
 !include MUI2.nsh
 !include LogicLib.nsh
 !include nsDialogs.nsh
 !include FileFunc.nsh
+!include x64.nsh
 
 ; Modern UI settings
 !define MUI_ABORTWARNING
@@ -53,6 +60,51 @@ Var KioskModeValue
 Var FullscreenCheckbox
 Var FullscreenValue
 
+; Check 64-bit system
+Function .onInit
+    ; Check if running on 64-bit Windows
+    ${If} ${RunningX64}
+        DetailPrint "64-bit Windows detected - proceeding with installation"
+    ${Else}
+        MessageBox MB_OK|MB_ICONSTOP "This application requires 64-bit Windows. Installation cannot continue."
+        Abort
+    ${EndIf}
+    
+    ; Set default install directory for 64-bit
+    StrCpy $INSTDIR "$PROGRAMFILES64\${APPNAME}"
+    
+    ; Check command line parameters
+    ${GetParameters} $R0
+    
+    ; Silent install with URL parameter
+    ClearErrors
+    ${GetOptions} $R0 "/URL=" $UrlValue
+    ${If} ${Errors}
+        StrCpy $UrlValue "https://hsezgin.github.io/WebViewKeyboardLauncher/welcome.html"
+    ${EndIf}
+    
+    ; Auto start parameter
+    ClearErrors
+    ${GetOptions} $R0 "/AUTOSTART=" $StartWithWindowsValue
+    ${If} ${Errors}
+        StrCpy $StartWithWindowsValue "1"
+    ${EndIf}
+    
+    ; Kiosk mode parameter
+    ClearErrors
+    ${GetOptions} $R0 "/KIOSK=" $KioskModeValue
+    ${If} ${Errors}
+        StrCpy $KioskModeValue "0"
+    ${EndIf}
+    
+    ; Fullscreen parameter
+    ClearErrors
+    ${GetOptions} $R0 "/FULLSCREEN=" $FullscreenValue
+    ${If} ${Errors}
+        StrCpy $FullscreenValue "0"
+    ${EndIf}
+FunctionEnd
+
 ; Custom URL configuration page
 Function nsDialogsPageCreate
     nsDialogs::Create 1018
@@ -88,7 +140,7 @@ Function nsDialogsPageCreate
     ${NSD_CreateCheckbox} 20 160 330 15 "Fullscreen mode (hides taskbar)"
     Pop $FullscreenCheckbox
     
-    ; Warning label - shorter text
+    ; Warning label
     ${NSD_CreateLabel} 10 190 350 30 "Emergency exit: Ctrl+Shift+Alt+E"
     Pop $0
 
@@ -145,28 +197,48 @@ FunctionEnd
 Section "Core Application" SecCore
     SectionIn 1 2 RO ; Required in all install types
     
+    DetailPrint "Installing to 64-bit Program Files..."
     SetOutPath $INSTDIR
     
     ; Application files
     File "${SOURCE_DIR}\WebViewKeyboardLauncher.exe"
     
-    ; Copy additional files with /nonfatal flag (won't fail if not found)
+    ; Copy additional files with /nonfatal flag
     File /nonfatal "${SOURCE_DIR}\*.dll"
     File /nonfatal "${SOURCE_DIR}\*.json"
     File /nonfatal "${SOURCE_DIR}\*.config"
     File /nonfatal "${SOURCE_DIR}\*.pdb"
     
-    ; Registry - Configuration (HKLM only - admin controlled)
+    ; FIXED: Force 64-bit registry operations
+    DetailPrint "Writing to 64-bit registry..."
+    SetRegView 64
+    
+    ; Clean any old 32-bit registry entries first
+    DetailPrint "Cleaning old 32-bit registry entries..."
+    SetRegView 32
+    DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
+    
+    ; Write to 64-bit registry (preferred location)
+    DetailPrint "Writing configuration to 64-bit registry..."
+    SetRegView 64
     WriteRegStr HKLM "SOFTWARE\WebViewKeyboardLauncher" "Homepage" $UrlValue
     WriteRegStr HKLM "SOFTWARE\WebViewKeyboardLauncher" "InstallPath" "$INSTDIR"
     WriteRegStr HKLM "SOFTWARE\WebViewKeyboardLauncher" "Version" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
     WriteRegDWORD HKLM "SOFTWARE\WebViewKeyboardLauncher" "KioskMode" $KioskModeValue
     WriteRegDWORD HKLM "SOFTWARE\WebViewKeyboardLauncher" "FullscreenMode" $FullscreenValue
     
+    ; Verify registry write
+    ReadRegStr $0 HKLM "SOFTWARE\WebViewKeyboardLauncher" "Homepage"
+    ${If} $0 == ""
+        DetailPrint "WARNING: Registry write may have failed"
+    ${Else}
+        DetailPrint "Registry write successful: $0"
+    ${EndIf}
+    
     ; Uninstaller
     WriteUninstaller "$INSTDIR\uninstall.exe"
     
-    ; Add/Remove Programs entry
+    ; Add/Remove Programs entry (also in 64-bit registry)
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "DisplayName" "${APPNAME}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "QuietUninstallString" "$\"$INSTDIR\uninstall.exe$\" /S"
@@ -194,11 +266,12 @@ Section "Auto Start with Windows" SecAutoStart
     
     ; Only if user selected this option
     ${If} $StartWithWindowsValue == 1
+        SetRegView 64
         ${If} $KioskModeValue == 1
             ; Kiosk mode - create kiosk user and auto-login
             Call SetupKioskMode
         ${Else}
-            ; Normal auto-start (HKLM for all users)
+            ; Normal auto-start (64-bit registry)
             WriteRegStr HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher" '"$INSTDIR\WebViewKeyboardLauncher.exe"'
         ${EndIf}
     ${EndIf}
@@ -216,7 +289,8 @@ Section "Uninstall"
     ; Stop the application if running
     ExecWait 'taskkill /F /IM WebViewKeyboardLauncher.exe' $0
     
-    ; Remove kiosk mode settings if they exist
+    ; Check for kiosk mode settings
+    SetRegView 64
     ReadRegDWORD $0 HKLM "SOFTWARE\WebViewKeyboardLauncher" "KioskMode"
     ${If} $0 == 1
         ; Restore system settings
@@ -227,13 +301,22 @@ Section "Uninstall"
         DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoRun"
         DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoClose"
         
-        ; Remove kiosk user (optional - may want to keep for data)
+        ; Remove kiosk user (optional)
         MessageBox MB_YESNO "Remove Kiosk user account? (This will delete all user data)" IDNO +2
         ExecWait 'net user KioskUser /delete' $0
     ${EndIf}
     
-    ; Remove startup entries (both HKLM locations)
+    ; Remove startup entries from both registry locations
+    SetRegView 64
     DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher"
+    SetRegView 32
+    DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher"
+    
+    ; Remove application registry entries from both locations
+    SetRegView 64
+    DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
+    SetRegView 32
+    DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
     
     ; Remove application files
     Delete "$INSTDIR\WebViewKeyboardLauncher.exe"
@@ -248,45 +331,10 @@ Section "Uninstall"
     RMDir "$SMPROGRAMS\${COMPANYNAME}"
     Delete "$DESKTOP\${APPNAME}.lnk"
     
-    ; Remove registry entries (HKLM only)
-    DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
+    ; Remove uninstall registry entry
+    SetRegView 64
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
 SectionEnd
-
-; Command line support
-Function .onInit
-    ; Check command line parameters
-    ${GetParameters} $R0
-    
-    ; Silent install with URL parameter
-    ; Usage: setup.exe /S /URL=https://example.com
-    ClearErrors
-    ${GetOptions} $R0 "/URL=" $UrlValue
-    ${If} ${Errors}
-        StrCpy $UrlValue "https://hsezgin.github.io/WebViewKeyboardLauncher/welcome"
-    ${EndIf}
-    
-    ; Auto start parameter
-    ClearErrors
-    ${GetOptions} $R0 "/AUTOSTART=" $StartWithWindowsValue
-    ${If} ${Errors}
-        StrCpy $StartWithWindowsValue "1"
-    ${EndIf}
-    
-    ; Kiosk mode parameter
-    ClearErrors
-    ${GetOptions} $R0 "/KIOSK=" $KioskModeValue
-    ${If} ${Errors}
-        StrCpy $KioskModeValue "0"
-    ${EndIf}
-    
-    ; Fullscreen parameter
-    ClearErrors
-    ${GetOptions} $R0 "/FULLSCREEN=" $FullscreenValue
-    ${If} ${Errors}
-        StrCpy $FullscreenValue "0"
-    ${EndIf}
-FunctionEnd
 
 ; Kiosk mode setup function
 Function SetupKioskMode
@@ -301,11 +349,12 @@ Function SetupKioskMode
     ${EndIf}
     
     ; Set auto-login for kiosk user
+    SetRegView 64
     WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultUserName" "KioskUser"
     WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultPassword" ""
     WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "AutoAdminLogon" "1"
     
-    ; Add kiosk user to auto-start
+    ; Add kiosk user to auto-start (64-bit registry)
     WriteRegStr HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher" '"$INSTDIR\WebViewKeyboardLauncher.exe"'
     
     ; Disable Windows key and other shortcuts (basic kiosk lockdown)
