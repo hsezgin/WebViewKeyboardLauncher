@@ -6,15 +6,17 @@
 !define VERSIONMINOR 0
 !define VERSIONBUILD 0
 
-; Force 64-bit installer
+; Cross-platform installer (32-bit NSIS compatible)
 RequestExecutionLevel admin
-InstallDir "$PROGRAMFILES64\${APPNAME}"
 Name "${APPNAME}"
 outFile "WebViewKeyboardLauncher_Setup.exe"
 
-; Target x64 architecture explicitly
+; Auto-detect system architecture for install path
 !ifdef NSIS_WIN32_MAKENSIS
-  !error "This installer requires NSIS x64 version"
+  ; 32-bit NSIS detected - use conditional install dir
+  Var InstallDir64
+!else
+  ; 64-bit NSIS detected
 !endif
 
 ; Modern UI includes
@@ -60,18 +62,16 @@ Var KioskModeValue
 Var FullscreenCheckbox
 Var FullscreenValue
 
-; Check 64-bit system
+; Check system architecture and set install directory
 Function .onInit
-    ; Check if running on 64-bit Windows
+    ; Detect system architecture and set appropriate install directory
     ${If} ${RunningX64}
-        DetailPrint "64-bit Windows detected - proceeding with installation"
+        StrCpy $INSTDIR "$PROGRAMFILES64\${APPNAME}"
+        DetailPrint "64-bit Windows detected - installing to Program Files"
     ${Else}
-        MessageBox MB_OK|MB_ICONSTOP "This application requires 64-bit Windows. Installation cannot continue."
-        Abort
+        StrCpy $INSTDIR "$PROGRAMFILES32\${APPNAME}"
+        DetailPrint "32-bit Windows detected - installing to Program Files (x86)"
     ${EndIf}
-    
-    ; Set default install directory for 64-bit
-    StrCpy $INSTDIR "$PROGRAMFILES64\${APPNAME}"
     
     ; Check command line parameters
     ${GetParameters} $R0
@@ -209,18 +209,27 @@ Section "Core Application" SecCore
     File /nonfatal "${SOURCE_DIR}\*.config"
     File /nonfatal "${SOURCE_DIR}\*.pdb"
     
-    ; FIXED: Force 64-bit registry operations
-    DetailPrint "Writing to 64-bit registry..."
-    SetRegView 64
+    ; Smart registry handling - prefer 64-bit when available
+    DetailPrint "Configuring registry entries..."
     
-    ; Clean any old 32-bit registry entries first
-    DetailPrint "Cleaning old 32-bit registry entries..."
-    SetRegView 32
-    DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
+    ; Clean old entries from both locations
+    ${If} ${RunningX64}
+        DetailPrint "Cleaning old registry entries..."
+        SetRegView 64
+        DeleteRegKey /ifempty HKLM "SOFTWARE\WebViewKeyboardLauncher"
+        SetRegView 32
+        DeleteRegKey /ifempty HKLM "SOFTWARE\WebViewKeyboardLauncher"
+        
+        ; Write to 64-bit registry (preferred on x64 systems)
+        DetailPrint "Writing to 64-bit registry..."
+        SetRegView 64
+    ${Else}
+        ; On 32-bit systems, use native registry
+        DetailPrint "Writing to native registry..."
+        SetRegView 32
+    ${EndIf}
     
-    ; Write to 64-bit registry (preferred location)
-    DetailPrint "Writing configuration to 64-bit registry..."
-    SetRegView 64
+    ; Write configuration
     WriteRegStr HKLM "SOFTWARE\WebViewKeyboardLauncher" "Homepage" $UrlValue
     WriteRegStr HKLM "SOFTWARE\WebViewKeyboardLauncher" "InstallPath" "$INSTDIR"
     WriteRegStr HKLM "SOFTWARE\WebViewKeyboardLauncher" "Version" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
@@ -266,12 +275,17 @@ Section "Auto Start with Windows" SecAutoStart
     
     ; Only if user selected this option
     ${If} $StartWithWindowsValue == 1
-        SetRegView 64
+        ${If} ${RunningX64}
+            SetRegView 64
+        ${Else}
+            SetRegView 32
+        ${EndIf}
+        
         ${If} $KioskModeValue == 1
             ; Kiosk mode - create kiosk user and auto-login
             Call SetupKioskMode
         ${Else}
-            ; Normal auto-start (64-bit registry)
+            ; Normal auto-start
             WriteRegStr HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher" '"$INSTDIR\WebViewKeyboardLauncher.exe"'
         ${EndIf}
     ${EndIf}
@@ -290,7 +304,12 @@ Section "Uninstall"
     ExecWait 'taskkill /F /IM WebViewKeyboardLauncher.exe' $0
     
     ; Check for kiosk mode settings
-    SetRegView 64
+    ${If} ${RunningX64}
+        SetRegView 64
+    ${Else}
+        SetRegView 32
+    ${EndIf}
+    
     ReadRegDWORD $0 HKLM "SOFTWARE\WebViewKeyboardLauncher" "KioskMode"
     ${If} $0 == 1
         ; Restore system settings
@@ -306,17 +325,27 @@ Section "Uninstall"
         ExecWait 'net user KioskUser /delete' $0
     ${EndIf}
     
-    ; Remove startup entries from both registry locations
-    SetRegView 64
-    DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher"
-    SetRegView 32
-    DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher"
+    ; Remove startup entries from appropriate registry location
+    ${If} ${RunningX64}
+        SetRegView 64
+        DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher"
+        SetRegView 32
+        DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher"
+    ${Else}
+        SetRegView 32
+        DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher"
+    ${EndIf}
     
-    ; Remove application registry entries from both locations
-    SetRegView 64
-    DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
-    SetRegView 32
-    DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
+    ; Remove application registry entries
+    ${If} ${RunningX64}
+        SetRegView 64
+        DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
+        SetRegView 32
+        DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
+    ${Else}
+        SetRegView 32
+        DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
+    ${EndIf}
     
     ; Remove application files
     Delete "$INSTDIR\WebViewKeyboardLauncher.exe"
@@ -332,7 +361,11 @@ Section "Uninstall"
     Delete "$DESKTOP\${APPNAME}.lnk"
     
     ; Remove uninstall registry entry
-    SetRegView 64
+    ${If} ${RunningX64}
+        SetRegView 64
+    ${Else}
+        SetRegView 32
+    ${EndIf}
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
 SectionEnd
 
@@ -349,12 +382,17 @@ Function SetupKioskMode
     ${EndIf}
     
     ; Set auto-login for kiosk user
-    SetRegView 64
+    ${If} ${RunningX64}
+        SetRegView 64
+    ${Else}
+        SetRegView 32
+    ${EndIf}
+    
     WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultUserName" "KioskUser"
     WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultPassword" ""
     WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "AutoAdminLogon" "1"
     
-    ; Add kiosk user to auto-start (64-bit registry)
+    ; Add kiosk user to auto-start
     WriteRegStr HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher" '"$INSTDIR\WebViewKeyboardLauncher.exe"'
     
     ; Disable Windows key and other shortcuts (basic kiosk lockdown)
