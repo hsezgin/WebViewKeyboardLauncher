@@ -9,7 +9,9 @@
 *.user
 *.userosscache
 *.sln.docstates
-
+*.pass
+*.pfx
+*.cer
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
@@ -223,7 +225,7 @@ _pkginfo.txt
 *.appx
 *.appxbundle
 *.appxupload
-
+*.Package
 # Visual Studio cache files
 # files ending in .cache can be ignored
 *.[Cc]ache

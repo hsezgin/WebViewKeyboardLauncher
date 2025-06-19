@@ -147,11 +147,6 @@ Section "Core Application" SecCore
     
     SetOutPath $INSTDIR
     
-    ; Check if source exe exists
-    IfFileExists "${SOURCE_DIR}\WebViewKeyboardLauncher.exe" +3 0
-        MessageBox MB_OK "Source file not found: ${SOURCE_DIR}\WebViewKeyboardLauncher.exe"
-        Abort
-    
     ; Application files
     File "${SOURCE_DIR}\WebViewKeyboardLauncher.exe"
     
