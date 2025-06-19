@@ -23,7 +23,7 @@ namespace WebViewKeyboardLauncher
 {
     public partial class FloatingToolbar : Form
     {
-        private KeyboardButton _keyboardButton  = null!;
+        private KeyboardButton _keyboardButton = null!;
         private Button _settingsButton = null!;
         private SettingsButtonForm? _settingsButtonForm;
         private bool _isDragging = false;
@@ -31,6 +31,15 @@ namespace WebViewKeyboardLauncher
 
         // WebViewManager referansı
         private WebViewManager? _webViewManager;
+
+        // Windows API for Z-Order management
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_SHOWWINDOW = 0x0040;
 
         public event EventHandler? KeyboardButtonClicked;
 
@@ -65,7 +74,11 @@ namespace WebViewKeyboardLauncher
                 _keyboardButton.Location = new Point(5, 5);
                 _keyboardButton.Size = new Size(50, 40);
 
-                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Kiosk mode: Settings hidden, keyboard only");
+                // Kiosk mode'da TopMost olarak ayarla
+                this.TopMost = true;
+                SetWindowPos(this.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+
+                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Kiosk mode: Settings hidden, keyboard only, TopMost enabled");
             }
             else
             {
@@ -79,7 +92,10 @@ namespace WebViewKeyboardLauncher
                 _settingsButton.Location = new Point(65, 5);
                 _settingsButton.Size = new Size(50, 40);
 
-                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Normal mode: All buttons visible");
+                // Normal mode'da TopMost'u kaldır
+                this.TopMost = false;
+
+                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Normal mode: All buttons visible, TopMost disabled");
             }
         }
 
@@ -128,8 +144,14 @@ namespace WebViewKeyboardLauncher
                     _settingsButtonForm.SetWebViewManager(_webViewManager);
                 }
 
+                // Kiosk mode bilgisini settings form'a geç
+                _settingsButtonForm.SetKioskModeTopMost(_kioskMode);
+
                 PositionSettingsForm();
                 _settingsButtonForm.Show();
+
+                // Z-Order'ı düzelt
+                EnsureSettingsFormZOrder();
             }
             else if (_settingsButtonForm.Visible)
             {
@@ -140,6 +162,19 @@ namespace WebViewKeyboardLauncher
                 PositionSettingsForm();
                 _settingsButtonForm.Show();
                 _settingsButtonForm.Focus();
+
+                // Z-Order'ı düzelt
+                EnsureSettingsFormZOrder();
+            }
+        }
+
+        private void EnsureSettingsFormZOrder()
+        {
+            if (_settingsButtonForm != null && _kioskMode)
+            {
+                // Settings form'u da TopMost olarak ayarla
+                SetWindowPos(_settingsButtonForm.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] SettingsForm Z-Order set to TopMost");
             }
         }
 
@@ -341,11 +376,5 @@ namespace WebViewKeyboardLauncher
                 }
             }
         }
-
-        [DllImport("user32.dll")]
-        private static extern bool ReleaseCapture();
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
     }
 }

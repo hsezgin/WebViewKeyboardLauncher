@@ -16,6 +16,7 @@
 
 using System;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace WebViewKeyboardLauncher
@@ -33,6 +34,15 @@ namespace WebViewKeyboardLauncher
         private bool _refreshHoldCompleted = false;
         private bool _restartHoldCompleted = false;
 
+        // Windows API for Z-Order management
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_SHOWWINDOW = 0x0040;
+
         public SettingsButtonForm()
         {
             InitializeComponent();
@@ -46,6 +56,22 @@ namespace WebViewKeyboardLauncher
 
             BindEvents();
             InitializeTimers();
+        }
+
+        public void SetKioskModeTopMost(bool kioskMode)
+        {
+            if (kioskMode)
+            {
+                this.TopMost = true;
+                // Z-Order'ı explicit olarak en üstte ayarla
+                SetWindowPos(this.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                System.Diagnostics.Debug.WriteLine("[SettingsButtonForm] TopMost enabled for kiosk mode");
+            }
+            else
+            {
+                this.TopMost = false;
+                System.Diagnostics.Debug.WriteLine("[SettingsButtonForm] TopMost disabled for normal mode");
+            }
         }
 
         private void ApplyButtonStyles()

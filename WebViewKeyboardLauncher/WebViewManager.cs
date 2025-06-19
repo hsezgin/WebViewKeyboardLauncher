@@ -130,7 +130,17 @@ public class WebViewManager
             }
         };
 
-        string script = "window.addEventListener('load', () => { document.body.addEventListener('focusin', function(e) { if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') { window.chrome.webview.postMessage('focus'); } }, true); });";
+        // Basit focus detection - sadece web sayfasından gelen event'ları dinle
+        string script = @"
+            window.addEventListener('load', () => {
+                document.body.addEventListener('focusin', function(e) {
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || 
+                        e.target.contentEditable === 'true' || e.target.getAttribute('role') === 'textbox') {
+                        window.chrome.webview.postMessage('focus');
+                    }
+                }, true);
+            });
+        ";
 
         _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
     }
