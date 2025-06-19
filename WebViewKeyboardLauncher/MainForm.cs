@@ -33,25 +33,12 @@ namespace WebViewKeyboardLauncher
         private int debugCountdown = 30;
 #endif
 
-        // Windows API for window management
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
+        // Windows API for window management (sadece gerekli olanlar)
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr SetWindowLong(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-        private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
-        private const uint SWP_NOMOVE = 0x0002;
-        private const uint SWP_NOSIZE = 0x0001;
-        private const uint SWP_SHOWWINDOW = 0x0040;
-        private const int GWL_HWNDPARENT = -8;
 
         public MainForm()
         {
@@ -69,7 +56,7 @@ namespace WebViewKeyboardLauncher
         private void SetupDebugSafetyTimer()
         {
             debugSafetyTimer = new System.Windows.Forms.Timer();
-            debugSafetyTimer.Interval = 1000; // Her saniye
+            debugSafetyTimer.Interval = 1000;
             debugSafetyTimer.Tick += DebugSafetyTimer_Tick;
             debugSafetyTimer.Start();
 
@@ -80,13 +67,11 @@ namespace WebViewKeyboardLauncher
         {
             debugCountdown--;
 
-            // Her 5 saniyede log
             if (debugCountdown % 5 == 0)
             {
                 System.Diagnostics.Debug.WriteLine($"🛡️ DEBUG: Auto exit in {debugCountdown} seconds...");
             }
 
-            // Title'da countdown göster (sadece kiosk mode'da)
             if (webViewManager?.IsKioskMode == true)
             {
                 this.Text = $"DEBUG Kiosk Mode - Auto Exit: {debugCountdown}s";
@@ -96,8 +81,6 @@ namespace WebViewKeyboardLauncher
             {
                 debugSafetyTimer?.Stop();
                 System.Diagnostics.Debug.WriteLine("🛡️ DEBUG: Safety timer triggered - Force exit!");
-
-                // Zorla kiosk mode'dan çık
                 ForceExitKioskMode();
             }
         }
@@ -106,7 +89,6 @@ namespace WebViewKeyboardLauncher
         {
             try
             {
-                // Registry'yi temizle
                 using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WebViewKeyboardLauncher");
                 key?.SetValue("KioskMode", 0, Microsoft.Win32.RegistryValueKind.DWord);
                 key?.SetValue("FullscreenMode", 0, Microsoft.Win32.RegistryValueKind.DWord);
@@ -118,7 +100,7 @@ namespace WebViewKeyboardLauncher
                 System.Diagnostics.Debug.WriteLine($"🛡️ DEBUG: Registry cleanup error: {ex.Message}");
             }
 
-            // Form'u normal moda döndür
+            // Normal form davranışı
             this.TopMost = false;
             this.ShowInTaskbar = true;
             this.ControlBox = true;
@@ -132,20 +114,16 @@ namespace WebViewKeyboardLauncher
             if (toolbar != null)
             {
                 toolbar.SetKioskMode(false);
-                toolbar.TopMost = false;
             }
 
-            // WebViewManager'ı bilgilendir
             webViewManager?.ExitKioskMode();
 
-            // Uyarı mesajı
-            MessageBox.Show("DEBUG SAFETY: Kiosk mode automatically disabled after 30 seconds!\n\nThis prevents being stuck in debug mode.",
+            MessageBox.Show("DEBUG: Kiosk mode automatically disabled after 30 seconds!\n\nThis prevents being stuck in debug mode.",
                 "Debug Safety Exit", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
             System.Diagnostics.Debug.WriteLine("🛡️ DEBUG: Safety exit completed");
         }
 
-        // Timer'ı durdurma metodu (manuel exit'te kullanmak için)
         private void StopDebugSafetyTimer()
         {
             if (debugSafetyTimer != null)
@@ -160,7 +138,6 @@ namespace WebViewKeyboardLauncher
 
         private void InitializeForm()
         {
-            // Basic form settings
             this.FormBorderStyle = FormBorderStyle.None;
             this.StartPosition = FormStartPosition.Manual;
             this.Location = new Point(0, 0);
@@ -182,7 +159,7 @@ namespace WebViewKeyboardLauncher
             // WebViewManager setup
             webViewManager = new WebViewManager(webView);
 
-            // ✅ TEMIZ ÇÖZÜM: Sadece throttle, Z-order manipülasyonu yok
+            // ✅ BASIT ÇÖZÜM: Sadece keyboard manager bağlantısı
             webViewManager.OnFocusReceived += () => keyboardManager.On();
 
 #if DEBUG
@@ -195,94 +172,41 @@ namespace WebViewKeyboardLauncher
             toolbar.KeyboardButtonClicked += Toolbar_KeyboardButtonClicked;
             toolbar.SetWebViewManager(webViewManager);
 
-            // Apply kiosk mode settings
+            // Apply kiosk mode settings (basitleştirilmiş)
             ApplyKioskModeToForm();
 
+            // Toolbar mode ayarı (basit)
             if (webViewManager.IsKioskMode)
             {
                 toolbar.SetKioskMode(true);
-
-                // ✅ WINDOW GROUPING: Toolbar'ı MainForm'un "owned window"ı yap
-                SetupWindowGrouping();
-
-                System.Diagnostics.Debug.WriteLine("[MainForm] Toolbar in kiosk mode with window grouping");
+                System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode - Standard behavior");
             }
 
             toolbar.Show();
-        }
-
-        // ✅ TEST ÇÖZÜMÜ: Group + Periodic Z-Order Maintenance
-        private void SetupWindowGrouping()
-        {
-            try
-            {
-                // 1. Owner relationship kur
-                SetWindowLong(toolbar.Handle, GWL_HWNDPARENT, this.Handle);
-
-                // 2. Her ikisini de TopMost yap
-                this.TopMost = true;
-                toolbar.TopMost = true;
-
-                // 3. Toolbar'ı öne getir
-                toolbar.BringToFront();
-
-                System.Diagnostics.Debug.WriteLine("🔗 [GROUPING] Basic grouping established");
-
-                // 4. ✅ YENİ: Periyodik Z-order maintenance (sadece kiosk mode'da)
-                if (webViewManager.IsKioskMode)
-                {
-                    var zOrderTimer = new System.Windows.Forms.Timer();
-                    zOrderTimer.Interval = 2000; // Her 2 saniyede
-                    zOrderTimer.Tick += (s, e) => {
-                        try
-                        {
-                            if (toolbar != null && !toolbar.IsDisposed && toolbar.Visible)
-                            {
-                                toolbar.BringToFront();
-                                System.Diagnostics.Debug.WriteLine("🔗 [MAINTENANCE] Toolbar Z-order maintained");
-                            }
-                        }
-                        catch { }
-                    };
-                    zOrderTimer.Start();
-
-                    System.Diagnostics.Debug.WriteLine("🔗 [GROUPING] Z-order maintenance timer started");
-                }
-
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"❌ [GROUPING] Grouping failed: {ex.Message}");
-
-                // Fallback
-                toolbar.TopMost = true;
-                this.TopMost = true;
-                toolbar.BringToFront();
-            }
         }
 
         private void ApplyKioskModeToForm()
         {
             if (webViewManager?.IsKioskMode != true)
             {
-                // Normal mode - not topmost
+                // Normal mode
                 this.TopMost = false;
                 return;
             }
 
             System.Diagnostics.Debug.WriteLine("[MainForm] Applying kiosk mode settings");
 
-            // Prevent form from being moved or resized
+            // Temel kiosk ayarları
             this.MaximizeBox = false;
             this.MinimizeBox = false;
             this.ControlBox = false;
             this.ShowInTaskbar = false;
 
-            // Disable Alt+F4, Alt+Tab etc.
+            // Keyboard blocking
             this.KeyPreview = true;
             this.KeyDown += MainForm_KeyDown;
 
-            // Hide taskbar in fullscreen mode
+            // Fullscreen mode
             if (webViewManager.IsFullscreen)
             {
                 webViewManager.HideTaskbar();
@@ -290,7 +214,7 @@ namespace WebViewKeyboardLauncher
                 this.WindowState = FormWindowState.Maximized;
             }
 
-            System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode applied - Using window grouping for Z-Order");
+            System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode applied - Standard behavior");
         }
 
         private void MainForm_KeyDown(object? sender, KeyEventArgs e)
@@ -341,14 +265,10 @@ namespace WebViewKeyboardLauncher
             this.MinimizeBox = true;
             this.WindowState = FormWindowState.Normal;
 
-            // Remove topmost flag
-            SetWindowPos(this.Handle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-
             // Restore normal toolbar mode
             if (toolbar != null)
             {
-                toolbar.SetKioskMode(false); // Normal mode'a döndür
-                toolbar.TopMost = false; // Remove TopMost from toolbar
+                toolbar.SetKioskMode(false);
                 toolbar.Show();
             }
 
@@ -401,7 +321,6 @@ namespace WebViewKeyboardLauncher
                         if (command == SC_MOVE || command == SC_SIZE ||
                             command == SC_MINIMIZE || command == SC_CLOSE)
                         {
-                            // Block these system commands in kiosk mode
                             return;
                         }
                         break;
@@ -415,7 +334,6 @@ namespace WebViewKeyboardLauncher
         {
             if (webViewManager?.IsKioskMode == true)
             {
-                // Block additional key combinations
                 switch (keyData)
                 {
                     case Keys.Control | Keys.Shift | Keys.Escape: // Task Manager

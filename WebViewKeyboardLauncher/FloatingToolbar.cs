@@ -16,7 +16,6 @@
 
 using System;
 using System.Drawing;
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace WebViewKeyboardLauncher
@@ -32,26 +31,16 @@ namespace WebViewKeyboardLauncher
         // WebViewManager referansı
         private WebViewManager? _webViewManager;
 
-        // Windows API for Z-Order management
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-        private const uint SWP_NOMOVE = 0x0002;
-        private const uint SWP_NOSIZE = 0x0001;
-        private const uint SWP_SHOWWINDOW = 0x0040;
-
         public event EventHandler? KeyboardButtonClicked;
 
         public FloatingToolbar()
         {
-            InitializeComponent(); // Designer'daki butonlar oluşturulacak
+            InitializeComponent();
             SetupToolbar();
-            SetupButtons(); // Style'ları uygula
+            SetupButtons();
             SetupDragAndDrop();
         }
 
-        // WebViewManager'ı set etmek için metod
         public void SetWebViewManager(WebViewManager webViewManager)
         {
             _webViewManager = webViewManager;
@@ -74,19 +63,9 @@ namespace WebViewKeyboardLauncher
             _settingsButton.Location = new Point(65, 5);
             _settingsButton.Size = new Size(50, 40);
 
-            if (kioskMode)
-            {
-                // ✅ DEĞİŞİKLİK: Artık TopMost yapmıyoruz, MainForm grouping yapacak
-                this.TopMost = false; // Window grouping kullanılacak
+            this.TopMost = true;
 
-                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Kiosk mode: Using window grouping instead of TopMost");
-            }
-            else
-            {
-                // Normal mode'da TopMost'u kaldır
-                this.TopMost = false;
-                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Normal mode: TopMost disabled");
-            }
+            System.Diagnostics.Debug.WriteLine($"[FloatingToolbar] Mode: {(kioskMode ? "Kiosk" : "Normal")} - Standard behavior");
         }
 
         private void SetupToolbar()
@@ -134,14 +113,11 @@ namespace WebViewKeyboardLauncher
                     _settingsButtonForm.SetWebViewManager(_webViewManager);
                 }
 
-                // Kiosk mode bilgisini settings form'a geç
-                _settingsButtonForm.SetKioskModeTopMost(_kioskMode);
+                // ✅ BASİT: Normal TopMost davranışı
+                _settingsButtonForm.TopMost = false;
 
                 PositionSettingsForm();
                 _settingsButtonForm.Show();
-
-                // Z-Order'ı düzelt
-                EnsureSettingsFormZOrder();
             }
             else if (_settingsButtonForm.Visible)
             {
@@ -152,20 +128,6 @@ namespace WebViewKeyboardLauncher
                 PositionSettingsForm();
                 _settingsButtonForm.Show();
                 _settingsButtonForm.Focus();
-
-                // Z-Order'ı düzelt
-                EnsureSettingsFormZOrder();
-            }
-        }
-
-        private void EnsureSettingsFormZOrder()
-        {
-            if (_settingsButtonForm != null && _kioskMode)
-            {
-                System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Setting SettingsForm Z-Order to TopMost");
-                // Settings form'u da TopMost olarak ayarla
-                SetWindowPos(_settingsButtonForm.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] SettingsForm Z-Order set to TopMost");
             }
         }
 
@@ -275,11 +237,11 @@ namespace WebViewKeyboardLauncher
             this.MouseMove += ToolbarMouseMove;
             this.MouseUp += ToolbarMouseUp;
 
-            this.keyboardButton.MouseDown += ToolbarMouseDown; // Designer field kullan
+            this.keyboardButton.MouseDown += ToolbarMouseDown;
             this.keyboardButton.MouseMove += ToolbarMouseMove;
             this.keyboardButton.MouseUp += ToolbarMouseUp;
 
-            this.settingsButton.MouseDown += ToolbarMouseDown; // Designer field kullan
+            this.settingsButton.MouseDown += ToolbarMouseDown;
             this.settingsButton.MouseMove += ToolbarMouseMove;
             this.settingsButton.MouseUp += ToolbarMouseUp;
         }
@@ -310,7 +272,6 @@ namespace WebViewKeyboardLauncher
         {
             if (_isDragging && e.Button == MouseButtons.Left)
             {
-
                 Point currentPoint = e.Location;
 
                 if (sender is Control control && control != this)
