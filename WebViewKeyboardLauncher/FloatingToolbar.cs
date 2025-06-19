@@ -23,17 +23,16 @@ namespace WebViewKeyboardLauncher
 {
     public partial class FloatingToolbar : Form
     {
-        private KeyboardButton _keyboardButton;
-        private Button _settingsButton;
-        private SettingsButtonForm _settingsButtonForm;
+        private KeyboardButton _keyboardButton  = null!;
+        private Button _settingsButton = null!;
+        private SettingsButtonForm? _settingsButtonForm;
         private bool _isDragging = false;
-        private bool _hasMoved = false;
         private Point _dragStartPoint;
 
         // WebViewManager referansı
-        private WebViewManager _webViewManager;
+        private WebViewManager? _webViewManager;
 
-        public event EventHandler KeyboardButtonClicked;
+        public event EventHandler? KeyboardButtonClicked;
 
         public FloatingToolbar()
         {
@@ -50,13 +49,47 @@ namespace WebViewKeyboardLauncher
             System.Diagnostics.Debug.WriteLine("[FloatingToolbar] WebViewManager bağlandı");
         }
 
+        private bool _kioskMode = false;
+
+        public void SetKioskMode(bool kioskMode)
+        {
+            _kioskMode = kioskMode;
+
+            if (kioskMode)
+            {
+                // Kiosk mode'da sadece keyboard button göster
+                _settingsButton.Visible = false;
+                this.Size = new Size(60, 50); // Sadece keyboard button için küçült
+
+                // Keyboard button'ı ortala
+                _keyboardButton.Location = new Point(5, 5);
+                _keyboardButton.Size = new Size(50, 40);
+
+                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Kiosk mode: Settings hidden, keyboard only");
+            }
+            else
+            {
+                // Normal mode'da her şeyi göster
+                _settingsButton.Visible = true;
+                this.Size = new Size(120, 50);
+
+                // Butonları yeniden konumlandır
+                _keyboardButton.Location = new Point(5, 5);
+                _keyboardButton.Size = new Size(50, 40);
+                _settingsButton.Location = new Point(65, 5);
+                _settingsButton.Size = new Size(50, 40);
+
+                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Normal mode: All buttons visible");
+            }
+        }
+
         private void SetupToolbar()
         {
             // AppStyles'dan form stilini uygula
             AppStyles.ApplyToolbarForm(this);
 
             // Başlangıç konumu - taskbar dahil ekran sınırları
-            Rectangle screenBounds = Screen.PrimaryScreen.Bounds;
+            Rectangle screenBounds = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
             this.Location = new Point(
                 screenBounds.Width - this.Width - 100,
                 screenBounds.Height - this.Height - 50
@@ -84,7 +117,7 @@ namespace WebViewKeyboardLauncher
             _settingsButton.Click += SettingsButton_Click;
         }
 
-        private void SettingsButton_Click(object sender, EventArgs e)
+        private void SettingsButton_Click(object? sender, EventArgs e)
         {
             if (_settingsButtonForm == null || _settingsButtonForm.IsDisposed)
             {
@@ -116,7 +149,7 @@ namespace WebViewKeyboardLauncher
             if (_settingsButtonForm == null || _settingsButtonForm.IsDisposed)
                 return;
 
-            Rectangle screenBounds = Screen.PrimaryScreen.Bounds;
+            Rectangle screenBounds = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
             Point toolbarLocation = this.Location;
             Size toolbarSize = this.Size;
             Size settingsSize = _settingsButtonForm.Size;
@@ -225,12 +258,11 @@ namespace WebViewKeyboardLauncher
             this.settingsButton.MouseUp += ToolbarMouseUp;
         }
 
-        private void ToolbarMouseDown(object sender, MouseEventArgs e)
+        private void ToolbarMouseDown(object? sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
             {
                 _isDragging = true;
-                _hasMoved = false;
                 _dragStartPoint = e.Location;
 
                 if (sender is Control control && control != this)
@@ -248,11 +280,10 @@ namespace WebViewKeyboardLauncher
             }
         }
 
-        private void ToolbarMouseMove(object sender, MouseEventArgs e)
+        private void ToolbarMouseMove(object? sender, MouseEventArgs e)
         {
             if (_isDragging && e.Button == MouseButtons.Left)
             {
-                _hasMoved = true;
 
                 Point currentPoint = e.Location;
 
@@ -281,7 +312,7 @@ namespace WebViewKeyboardLauncher
 
         private Point KeepWithinScreenBounds(Point location)
         {
-            Rectangle screenBounds = Screen.PrimaryScreen.Bounds;
+            Rectangle screenBounds = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
 
             if (location.X < 0)
                 location.X = 0;
@@ -298,12 +329,11 @@ namespace WebViewKeyboardLauncher
             return location;
         }
 
-        private void ToolbarMouseUp(object sender, MouseEventArgs e)
+        private void ToolbarMouseUp(object? sender, MouseEventArgs e)
         {
             if (_isDragging)
             {
                 _isDragging = false;
-                _hasMoved = false;
 
                 if (_settingsButtonForm != null && !_settingsButtonForm.IsDisposed && _settingsButtonForm.Visible)
                 {

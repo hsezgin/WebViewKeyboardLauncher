@@ -25,9 +25,9 @@ namespace WebViewKeyboardLauncher
         private readonly SettingsController _controller;
 
         // Timer'lar uzun basma kontrolü için
-        private System.Windows.Forms.Timer _refreshTimer;
-        private System.Windows.Forms.Timer _restartTimer;
-        private System.Windows.Forms.Timer _autoCloseTimer;
+        private System.Windows.Forms.Timer _refreshTimer = null!;
+        private System.Windows.Forms.Timer _restartTimer = null!;
+        private System.Windows.Forms.Timer _autoCloseTimer = null!;
 
         // Basılı tutma durumu kontrolü
         private bool _refreshHoldCompleted = false;
@@ -97,7 +97,7 @@ namespace WebViewKeyboardLauncher
 
         #region Refresh Button Events
 
-        private void BtnRefresh_MouseDown(object sender, MouseEventArgs e)
+        private void BtnRefresh_MouseDown(object? sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
             {
@@ -111,7 +111,7 @@ namespace WebViewKeyboardLauncher
             }
         }
 
-        private void BtnRefresh_MouseUp(object sender, MouseEventArgs e)
+        private void BtnRefresh_MouseUp(object? sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
             {
@@ -131,14 +131,14 @@ namespace WebViewKeyboardLauncher
             }
         }
 
-        private void BtnRefresh_MouseLeave(object sender, EventArgs e)
+        private void BtnRefresh_MouseLeave(object? sender, EventArgs e)
         {
             _refreshTimer.Stop();
             btnRefresh.BackColor = AppStyles.RefreshNormal;
             _refreshHoldCompleted = false;
         }
 
-        private void RefreshTimer_Tick(object sender, EventArgs e)
+        private void RefreshTimer_Tick(object? sender, EventArgs e)
         {
             _refreshTimer.Stop();
             _refreshHoldCompleted = true;
@@ -155,7 +155,7 @@ namespace WebViewKeyboardLauncher
 
         #region Restart Button Events
 
-        private void BtnRestart_MouseDown(object sender, MouseEventArgs e)
+        private void BtnRestart_MouseDown(object? sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
             {
@@ -169,7 +169,7 @@ namespace WebViewKeyboardLauncher
             }
         }
 
-        private void BtnRestart_MouseUp(object sender, MouseEventArgs e)
+        private void BtnRestart_MouseUp(object? sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
             {
@@ -188,14 +188,14 @@ namespace WebViewKeyboardLauncher
             }
         }
 
-        private void BtnRestart_MouseLeave(object sender, EventArgs e)
+        private void BtnRestart_MouseLeave(object? sender, EventArgs e)
         {
             _restartTimer.Stop();
             btnRestart.BackColor = AppStyles.RestartNormal;
             _restartHoldCompleted = false;
         }
 
-        private void RestartTimer_Tick(object sender, EventArgs e)
+        private void RestartTimer_Tick(object? sender, EventArgs e)
         {
             _restartTimer.Stop();
             _restartHoldCompleted = true;
@@ -212,13 +212,13 @@ namespace WebViewKeyboardLauncher
 
         #region Auto Close Events
 
-        private void SettingsButtonForm_Shown(object sender, EventArgs e)
+        private void SettingsButtonForm_Shown(object? sender, EventArgs e)
         {
             _autoCloseTimer.Start();
             System.Diagnostics.Debug.WriteLine("[SettingsForm] Form gösterildi - 10 saniye auto close timer başladı");
         }
 
-        private void SettingsButtonForm_UserActivity(object sender, EventArgs e)
+        private void SettingsButtonForm_UserActivity(object? sender, EventArgs e)
         {
             ResetAutoCloseTimer();
         }
@@ -230,7 +230,7 @@ namespace WebViewKeyboardLauncher
             System.Diagnostics.Debug.WriteLine("[SettingsForm] Auto close timer resetlendi (10 saniye)");
         }
 
-        private void AutoCloseTimer_Tick(object sender, EventArgs e)
+        private void AutoCloseTimer_Tick(object? sender, EventArgs e)
         {
             _autoCloseTimer.Stop();
             this.Hide();

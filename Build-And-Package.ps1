@@ -18,6 +18,7 @@ $ErrorActionPreference = "Stop"
 $ProjectName = "WebViewKeyboardLauncher"
 $ProjectPath = ".\\$ProjectName\\$ProjectName.csproj"
 $NSISScript = ".\\WebViewKeyboardLauncher_Setup.nsi"
+
 $NSISPath = "${env:ProgramFiles(x86)}\\NSIS\\makensis.exe"
 $PublishDir = ".\$ProjectName\bin\$Configuration\net8.0-windows"
 
@@ -90,51 +91,34 @@ Copy-Item "$SourceDir\$ProjectName.exe" -Destination $PortableDir
 Copy-Item "$SourceDir\\*.dll" -Destination $PortableDir -ErrorAction SilentlyContinue
 Copy-Item "$SourceDir\\*.json" -Destination $PortableDir -ErrorAction SilentlyContinue
 
-# Create portable launcher script
+# Simple launcher - no config.json dependency
 $PortableLauncher = @"
 @echo off
 echo WebView Keyboard Launcher - Portable Edition
 echo ============================================
 echo.
-
-REM Set portable mode
-set WEBVIEW_PORTABLE=1
-
-REM Create local config if not exists
-if not exist "config.json" (
-    echo {
-    echo   "Homepage": "https://hsezgin.github.io/WebViewKeyboardLauncher/welcome",
-    echo   "AutoStart": false,
-    echo   "Portable": true
-    echo }
-    echo ) > config.json
-)
-
 echo Starting application...
 start "" "$ProjectName.exe"
 "@
 
 $PortableLauncher | Out-File -FilePath "$PortableDir\\Start.bat" -Encoding ASCII
 
-# Create portable README
+# Create README
 $PortableReadme = @"
 # WebView Keyboard Launcher - Portable Edition
 
 ## Quick Start
 1. Run 'Start.bat' to launch the application
-2. Edit 'config.json' to customize settings
-3. No installation required!
+2. No installation required!
 
 ## Features
 - Virtual keyboard launcher (⌨️)
 - Floating toolbar with settings (⚙️)
-- Customizable homepage URL
+- Customizable homepage URL via installer or command line
 - No registry modifications
 
 ## Configuration
-Edit config.json to change:
-- Homepage URL
-- Application settings
+Configure via installer or command line parameters.
 
 ## System Requirements
 - Windows 10/11 (x64)
@@ -157,6 +141,7 @@ Write-Host "   📦 Created: $($ZipInfo.Name) ($([math]::Round($ZipInfo.Length /
 # Step 3: Create NSIS Installer
 if (!$SkipSetup) {
     Write-Host "🔧 Creating NSIS installer..." -ForegroundColor Yellow
+    
     try {
         # Update version in NSIS script (basic replacement)
         $ResolvedSourceDir = Resolve-Path ".\$ProjectName\bin\$Configuration\net8.0-windows"
@@ -225,24 +210,33 @@ $ReleaseNotes = @"
 - 🔧 Settings panel with refresh and restart options
 - 🚀 Auto-start with Windows
 - 📱 Modern UI with drag & drop support
+- 🔒 **NEW: Kiosk Mode** - Secure lockdown for dedicated terminals
 
 ## Installation Options
 
 ### 📦 Installer (Recommended)
 - **File**: WebViewKeyboardLauncher-$Version-Setup.exe
 - **Size**: ~$(if (Test-Path "$OutputDir\\WebViewKeyboardLauncher-$Version-Setup.exe") { [math]::Round((Get-Item "$OutputDir\\WebViewKeyboardLauncher-$Version-Setup.exe").Length / 1KB, 1) } else { "XXX" }) KB
-- **Features**: Auto-start, registry integration, uninstaller
+- **Features**: Auto-start, registry integration, uninstaller, **Kiosk Mode option**
 - **Usage**: Run as Administrator
 
 ### 🎒 Portable Edition
 - **File**: WebViewKeyboardLauncher-$Version-Portable.zip
 - **Size**: ~$([math]::Round((Get-Item $PortableZip).Length / 1KB, 1)) KB
-- **Features**: No installation required, portable settings
+- **Features**: No installation required
 - **Usage**: Extract and run Start.bat
+
+## Kiosk Mode (NEW)
+- 🔒 **Secure system lockdown**
+- 👤 **Dedicated kiosk user account**
+- 🚫 **Disabled system shortcuts**
+- 🖥️ **Fullscreen mode**
+- 🛡️ **No remote access (maximum security)**
+- 🆘 **Emergency exit: Ctrl+Shift+Alt+E**
 
 ## Command Line Usage
 
-### Installer
+### Standard Installation
 ``````bash
 # Silent install with custom URL
 WebViewKeyboardLauncher-$Version-Setup.exe /S /URL=https://example.com
@@ -251,10 +245,20 @@ WebViewKeyboardLauncher-$Version-Setup.exe /S /URL=https://example.com
 WebViewKeyboardLauncher-$Version-Setup.exe /S /AUTOSTART=0
 ``````
 
+### Kiosk Mode Installation
+``````bash
+# Full kiosk setup
+WebViewKeyboardLauncher-$Version-Setup.exe /S /KIOSK=1 /AUTOLOGIN=1 /FULLSCREEN=1 /URL=https://your-kiosk-url.com
+
+# Kiosk with custom URL
+WebViewKeyboardLauncher-$Version-Setup.exe /S /KIOSK=1 /URL=https://example.com
+``````
+
 ## System Requirements
 - Windows 10/11 (x64)
 - .NET 8.0 Runtime
 - Microsoft WebView2 Runtime
+- Administrator rights (for kiosk mode)
 
 ## License
 Apache License 2.0
@@ -289,3 +293,4 @@ if ($OpenOutput) {
 
 Write-Host ""
 Write-Host "✅ All done! Ready for distribution." -ForegroundColor Green
+Write-Host "   🔒 Kiosk mode available in installer! 🔒" -ForegroundColor Cyan

@@ -47,6 +47,11 @@ Var UrlTextBox
 Var UrlValue
 Var StartWithWindowsCheckbox
 Var StartWithWindowsValue
+Var StartNowCheckbox
+Var KioskModeCheckbox
+Var KioskModeValue
+Var FullscreenCheckbox
+Var FullscreenValue
 
 ; Custom URL configuration page
 Function nsDialogsPageCreate
@@ -58,7 +63,7 @@ Function nsDialogsPageCreate
     ${EndIf}
 
     ; Title
-    ${NSD_CreateLabel} 10 10 280 20 "Homepage URL Configuration"
+    ${NSD_CreateLabel} 10 10 280 20 "Configuration Options"
     Pop $0
     
     ; URL input
@@ -73,8 +78,18 @@ Function nsDialogsPageCreate
     Pop $StartWithWindowsCheckbox
     ${NSD_Check} $StartWithWindowsCheckbox ; Default checked
     
-    ; Description
-    ${NSD_CreateLabel} 10 120 350 40 "The application will open this URL when started. You can change this later by reinstalling or modifying the Windows Registry."
+    ; Kiosk Mode section
+    ${NSD_CreateGroupBox} 10 120 350 60 "Kiosk Mode (Advanced)"
+    Pop $0
+    
+    ${NSD_CreateCheckbox} 20 140 330 15 "Enable Kiosk Mode (secure lockdown for terminals)"
+    Pop $KioskModeCheckbox
+    
+    ${NSD_CreateCheckbox} 20 160 330 15 "Fullscreen mode (hides taskbar)"
+    Pop $FullscreenCheckbox
+    
+    ; Warning label - shorter text
+    ${NSD_CreateLabel} 10 190 350 30 "Emergency exit: Ctrl+Shift+Alt+E"
     Pop $0
 
     nsDialogs::Show
@@ -83,10 +98,18 @@ FunctionEnd
 Function nsDialogsPageLeave
     ${NSD_GetText} $UrlTextBox $UrlValue
     ${NSD_GetState} $StartWithWindowsCheckbox $StartWithWindowsValue
+    ${NSD_GetState} $KioskModeCheckbox $KioskModeValue
+    ${NSD_GetState} $FullscreenCheckbox $FullscreenValue
     
     ; Validate URL
     ${If} $UrlValue == ""
         MessageBox MB_OK "Please enter a valid URL."
+        Abort
+    ${EndIf}
+    
+    ; Warn about kiosk mode
+    ${If} $KioskModeValue == 1
+        MessageBox MB_YESNO|MB_ICONQUESTION "Kiosk mode will create a restricted user account and limit system access. This is intended for dedicated kiosk terminals only. Continue?" IDYES +2
         Abort
     ${EndIf}
 FunctionEnd
@@ -104,15 +127,15 @@ Function FinishPageCreate
     
     ; Start now checkbox
     ${NSD_CreateCheckbox} 10 110 350 15 "Start WebView Keyboard Launcher now"
-    Pop $0
-    ${NSD_Check} $0 ; Default checked
+    Pop $StartNowCheckbox
+    ${NSD_Check} $StartNowCheckbox ; Default checked
 
     nsDialogs::Show
 FunctionEnd
 
 Function FinishPageLeave
     ; Check if user wants to start now
-    ${NSD_GetState} $0 $1
+    ${NSD_GetState} $StartNowCheckbox $1
     ${If} $1 == 1
         Exec "$INSTDIR\WebViewKeyboardLauncher.exe"
     ${EndIf}
@@ -124,15 +147,26 @@ Section "Core Application" SecCore
     
     SetOutPath $INSTDIR
     
+    ; Check if source exe exists
+    IfFileExists "${SOURCE_DIR}\WebViewKeyboardLauncher.exe" +3 0
+        MessageBox MB_OK "Source file not found: ${SOURCE_DIR}\WebViewKeyboardLauncher.exe"
+        Abort
+    
     ; Application files
     File "${SOURCE_DIR}\WebViewKeyboardLauncher.exe"
+    
+    ; Copy additional files with /nonfatal flag (won't fail if not found)
     File /nonfatal "${SOURCE_DIR}\*.dll"
     File /nonfatal "${SOURCE_DIR}\*.json"
+    File /nonfatal "${SOURCE_DIR}\*.config"
+    File /nonfatal "${SOURCE_DIR}\*.pdb"
     
-    ; Registry - Homepage URL
-    WriteRegStr HKCU "Software\WebViewKeyboardLauncher" "Homepage" $UrlValue
-    WriteRegStr HKCU "Software\WebViewKeyboardLauncher" "InstallPath" $INSTDIR
-    WriteRegStr HKCU "Software\WebViewKeyboardLauncher" "Version" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
+    ; Registry - Configuration (HKLM only - admin controlled)
+    WriteRegStr HKLM "SOFTWARE\WebViewKeyboardLauncher" "Homepage" $UrlValue
+    WriteRegStr HKLM "SOFTWARE\WebViewKeyboardLauncher" "InstallPath" "$INSTDIR"
+    WriteRegStr HKLM "SOFTWARE\WebViewKeyboardLauncher" "Version" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
+    WriteRegDWORD HKLM "SOFTWARE\WebViewKeyboardLauncher" "KioskMode" $KioskModeValue
+    WriteRegDWORD HKLM "SOFTWARE\WebViewKeyboardLauncher" "FullscreenMode" $FullscreenValue
     
     ; Uninstaller
     WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -165,7 +199,13 @@ Section "Auto Start with Windows" SecAutoStart
     
     ; Only if user selected this option
     ${If} $StartWithWindowsValue == 1
-        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher" '"$INSTDIR\WebViewKeyboardLauncher.exe"'
+        ${If} $KioskModeValue == 1
+            ; Kiosk mode - create kiosk user and auto-login
+            Call SetupKioskMode
+        ${Else}
+            ; Normal auto-start (HKLM for all users)
+            WriteRegStr HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher" '"$INSTDIR\WebViewKeyboardLauncher.exe"'
+        ${EndIf}
     ${EndIf}
 SectionEnd
 
@@ -178,8 +218,27 @@ SectionEnd
 
 ; Uninstaller
 Section "Uninstall"
-    ; Remove startup entry
-    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher"
+    ; Stop the application if running
+    ExecWait 'taskkill /F /IM WebViewKeyboardLauncher.exe' $0
+    
+    ; Remove kiosk mode settings if they exist
+    ReadRegDWORD $0 HKLM "SOFTWARE\WebViewKeyboardLauncher" "KioskMode"
+    ${If} $0 == 1
+        ; Restore system settings
+        DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultUserName"
+        DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultPassword"
+        DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "AutoAdminLogon"
+        DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "DisableTaskMgr"
+        DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoRun"
+        DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoClose"
+        
+        ; Remove kiosk user (optional - may want to keep for data)
+        MessageBox MB_YESNO "Remove Kiosk user account? (This will delete all user data)" IDNO +2
+        ExecWait 'net user KioskUser /delete' $0
+    ${EndIf}
+    
+    ; Remove startup entries (both HKLM locations)
+    DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher"
     
     ; Remove application files
     Delete "$INSTDIR\WebViewKeyboardLauncher.exe"
@@ -194,8 +253,8 @@ Section "Uninstall"
     RMDir "$SMPROGRAMS\${COMPANYNAME}"
     Delete "$DESKTOP\${APPNAME}.lnk"
     
-    ; Remove registry entries
-    DeleteRegKey HKCU "Software\WebViewKeyboardLauncher"
+    ; Remove registry entries (HKLM only)
+    DeleteRegKey HKLM "SOFTWARE\WebViewKeyboardLauncher"
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
 SectionEnd
 
@@ -218,4 +277,46 @@ Function .onInit
     ${If} ${Errors}
         StrCpy $StartWithWindowsValue "1"
     ${EndIf}
+    
+    ; Kiosk mode parameter
+    ClearErrors
+    ${GetOptions} $R0 "/KIOSK=" $KioskModeValue
+    ${If} ${Errors}
+        StrCpy $KioskModeValue "0"
+    ${EndIf}
+    
+    ; Fullscreen parameter
+    ClearErrors
+    ${GetOptions} $R0 "/FULLSCREEN=" $FullscreenValue
+    ${If} ${Errors}
+        StrCpy $FullscreenValue "0"
+    ${EndIf}
+FunctionEnd
+
+; Kiosk mode setup function
+Function SetupKioskMode
+    DetailPrint "Setting up Kiosk Mode..."
+    
+    ; Create kiosk user account
+    ExecWait 'net user KioskUser /add /comment:"WebView Kiosk User" /passwordreq:no' $0
+    ${If} $0 == 0
+        DetailPrint "Kiosk user created successfully"
+    ${Else}
+        DetailPrint "Kiosk user may already exist or creation failed"
+    ${EndIf}
+    
+    ; Set auto-login for kiosk user
+    WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultUserName" "KioskUser"
+    WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultPassword" ""
+    WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "AutoAdminLogon" "1"
+    
+    ; Add kiosk user to auto-start
+    WriteRegStr HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "WebViewKeyboardLauncher" '"$INSTDIR\WebViewKeyboardLauncher.exe"'
+    
+    ; Disable Windows key and other shortcuts (basic kiosk lockdown)
+    WriteRegDWORD HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "DisableTaskMgr" 1
+    WriteRegDWORD HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoRun" 1
+    WriteRegDWORD HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoClose" 1
+    
+    DetailPrint "Kiosk mode configured"
 FunctionEnd

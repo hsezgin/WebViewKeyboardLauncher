@@ -23,10 +23,10 @@ namespace WebViewKeyboardLauncher
 {
     public partial class MainForm : Form
     {
-        private WebView2 webView;
-        private FloatingToolbar toolbar;
-        private KeyboardManager keyboardManager;
-        private WebViewManager webViewManager;
+        private WebView2 webView = null!;
+        private FloatingToolbar toolbar = null!;
+        private KeyboardManager keyboardManager = null!;
+        private WebViewManager webViewManager = null!;
 
         // Windows API for kiosk mode window management
         [DllImport("user32.dll")]
@@ -58,7 +58,7 @@ namespace WebViewKeyboardLauncher
             this.FormBorderStyle = FormBorderStyle.None;
             this.StartPosition = FormStartPosition.Manual;
             this.Location = new Point(0, 0);
-            this.Size = Screen.PrimaryScreen.Bounds.Size;
+            this.Size = Screen.PrimaryScreen?.Bounds.Size ?? new Size(1920, 1080);
             this.WindowState = FormWindowState.Normal;
 
             System.Diagnostics.Debug.WriteLine($"[MainForm] Form initialized: {this.Size}");
@@ -81,26 +81,25 @@ namespace WebViewKeyboardLauncher
             // Apply kiosk mode settings to form
             ApplyKioskModeToForm();
 
-            // Toolbar setup (adjusted for kiosk mode)
+            // Toolbar setup - klavye erişimi her zaman garantili
             toolbar = new FloatingToolbar();
             toolbar.KeyboardButtonClicked += Toolbar_KeyboardButtonClicked;
             toolbar.SetWebViewManager(webViewManager);
 
-            // Hide toolbar in kiosk mode if fullscreen is enabled
-            if (webViewManager.IsKioskMode && webViewManager.IsFullscreen)
+            // Kiosk mode'da toolbar'ı özel modda göster (sadece klavye butonu)
+            if (webViewManager.IsKioskMode)
             {
-                toolbar.Hide();
-                System.Diagnostics.Debug.WriteLine("[MainForm] Toolbar hidden in fullscreen kiosk mode");
+                toolbar.SetKioskMode(true); // Settings gizle, sadece keyboard kalsın
+                System.Diagnostics.Debug.WriteLine("[MainForm] Toolbar in kiosk mode - keyboard only");
             }
-            else
-            {
-                toolbar.Show();
-            }
+
+            // Her durumda toolbar'ı göster (klavye erişimi için)
+            toolbar.Show();
         }
 
         private void ApplyKioskModeToForm()
         {
-            if (!webViewManager.IsKioskMode)
+            if (webViewManager?.IsKioskMode != true)
             {
                 // Normal mode - not topmost
                 this.TopMost = false;
@@ -125,9 +124,10 @@ namespace WebViewKeyboardLauncher
             // Force topmost position
             SetWindowPos(this.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
 
-            // Hide from Alt+Tab if in fullscreen mode
+            // Hide taskbar in fullscreen mode
             if (webViewManager.IsFullscreen)
             {
+                webViewManager.HideTaskbar();
                 this.ShowInTaskbar = false;
                 this.WindowState = FormWindowState.Maximized;
             }
@@ -135,9 +135,9 @@ namespace WebViewKeyboardLauncher
             System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode applied - TopMost: True");
         }
 
-        private void MainForm_KeyDown(object sender, KeyEventArgs e)
+        private void MainForm_KeyDown(object? sender, KeyEventArgs e)
         {
-            if (!webViewManager.IsKioskMode) return;
+            if (webViewManager?.IsKioskMode != true) return;
 
             // Block system key combinations in kiosk mode
             switch (e.KeyCode)
@@ -182,9 +182,10 @@ namespace WebViewKeyboardLauncher
             // Remove topmost flag
             SetWindowPos(this.Handle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
-            // Show toolbar if hidden
-            if (toolbar != null && !toolbar.Visible)
+            // Restore normal toolbar mode
+            if (toolbar != null)
             {
+                toolbar.SetKioskMode(false); // Normal mode'a döndür
                 toolbar.Show();
             }
 
@@ -194,7 +195,7 @@ namespace WebViewKeyboardLauncher
             System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode exited");
         }
 
-        private void Toolbar_KeyboardButtonClicked(object sender, EventArgs e)
+        private void Toolbar_KeyboardButtonClicked(object? sender, EventArgs e)
         {
             keyboardManager.On();
             System.Diagnostics.Debug.WriteLine("Toolbar keyboard button tıklandı - TabTip açılıyor");
@@ -230,7 +231,6 @@ namespace WebViewKeyboardLauncher
                 const int SC_MOVE = 0xF010;
                 const int SC_SIZE = 0xF000;
                 const int SC_MINIMIZE = 0xF020;
-                const int SC_MAXIMIZE = 0xF030;
                 const int SC_CLOSE = 0xF060;
 
                 switch (m.Msg)
