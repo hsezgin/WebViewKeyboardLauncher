@@ -28,7 +28,6 @@ public class WebViewManager
     private const string REGISTRY_KEY_64 = @"SOFTWARE\WebViewKeyboardLauncher";
     private const string REGISTRY_KEY_32 = @"SOFTWARE\WOW6432Node\WebViewKeyboardLauncher";
     private const string DEFAULT_URL = "https://hsezgin.github.io/WebViewKeyboardLauncher/welcome.html";
-
     public event Action? OnFocusReceived;
 
     public WebViewManager(WebView2 webView)

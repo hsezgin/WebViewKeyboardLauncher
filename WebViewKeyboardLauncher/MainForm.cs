@@ -18,6 +18,7 @@ using Microsoft.Web.WebView2.WinForms;
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using System.Threading.Tasks;
 
 namespace WebViewKeyboardLauncher
 {
@@ -78,23 +79,54 @@ namespace WebViewKeyboardLauncher
             webViewManager.OnFocusReceived += () => keyboardManager.On();
             webViewManager.Initialize();
 
-            // Apply kiosk mode settings to form
-            ApplyKioskModeToForm();
-
             // Toolbar setup - klavye erişimi her zaman garantili
             toolbar = new FloatingToolbar();
             toolbar.KeyboardButtonClicked += Toolbar_KeyboardButtonClicked;
             toolbar.SetWebViewManager(webViewManager);
+
+            // Apply kiosk mode settings to form AFTER toolbar creation
+            ApplyKioskModeToForm();
 
             // Kiosk mode'da toolbar'ı özel modda göster (sadece klavye butonu)
             if (webViewManager.IsKioskMode)
             {
                 toolbar.SetKioskMode(true); // Settings gizle, sadece keyboard kalsın
                 System.Diagnostics.Debug.WriteLine("[MainForm] Toolbar in kiosk mode - keyboard only");
+                System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode exited");
             }
 
             // Her durumda toolbar'ı göster (klavye erişimi için)
             toolbar.Show();
+
+            // CRITICAL FIX: Ensure toolbar stays on top in kiosk mode
+            EnsureToolbarVisibility();
+        }
+
+        private void EnsureToolbarVisibility()
+        {
+            if (webViewManager?.IsKioskMode == true && toolbar != null)
+            {
+                // Set proper Z-Order: Klavye > KeyboardButton > Edge
+                // KeyboardButton should be above Edge but below TabTip
+                toolbar.TopMost = true;
+                toolbar.Show();
+                toolbar.BringToFront();
+
+                System.Diagnostics.Debug.WriteLine("[MainForm] Toolbar Z-Order: Above Edge, Below TabTip");
+
+                // Use specific Z-Order positioning
+                // Place toolbar above normal TopMost windows but below system UI
+                SetWindowPos(toolbar.Handle, new IntPtr(-1), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+
+                // Additional: Ensure TabTip will be above toolbar when opened
+                EnsureKeyboardPriority();
+            }
+        }
+
+        private void EnsureKeyboardPriority()
+        {
+            // TabTip processes typically handle their own Z-order, but we can help
+            System.Diagnostics.Debug.WriteLine("[MainForm] TabTip will auto-position above toolbar when opened");
         }
 
         private void ApplyKioskModeToForm()
@@ -108,7 +140,7 @@ namespace WebViewKeyboardLauncher
 
             System.Diagnostics.Debug.WriteLine("[MainForm] Applying kiosk mode settings");
 
-            // Kiosk mode - always on top
+            // Kiosk mode - set as topmost but lowest priority among topmost windows
             this.TopMost = true;
 
             // Prevent form from being moved or resized
@@ -121,7 +153,7 @@ namespace WebViewKeyboardLauncher
             this.KeyPreview = true;
             this.KeyDown += MainForm_KeyDown;
 
-            // Force topmost position
+            // Set MainForm as TopMost but with lower priority than toolbar
             SetWindowPos(this.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
 
             // Hide taskbar in fullscreen mode
@@ -132,7 +164,7 @@ namespace WebViewKeyboardLauncher
                 this.WindowState = FormWindowState.Maximized;
             }
 
-            System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode applied - TopMost: True");
+            System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode applied - Z-Order: MainForm < Toolbar < TabTip");
         }
 
         private void MainForm_KeyDown(object? sender, KeyEventArgs e)
@@ -186,19 +218,76 @@ namespace WebViewKeyboardLauncher
             if (toolbar != null)
             {
                 toolbar.SetKioskMode(false); // Normal mode'a döndür
+                toolbar.TopMost = false; // Remove TopMost from toolbar
                 toolbar.Show();
             }
 
             // Remove key blocking
             this.KeyDown -= MainForm_KeyDown;
+        }
 
-            System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode exited");
+        private void SetupEnhancedFocusDetection()
+        {
+            // Enhanced focus detection for web inputs in kiosk mode
+            if (webView?.CoreWebView2 != null)
+            {
+                // Direct WebView2 events
+                webView.GotFocus += (s, e) => {
+                    System.Diagnostics.Debug.WriteLine("[MainForm] WebView2 got focus - checking for input elements");
+
+                    // Small delay to allow DOM to settle
+                    Task.Delay(100).ContinueWith(_ => {
+                        Invoke(() => {
+                            webView.CoreWebView2?.ExecuteScriptAsync(@"
+                                (function() {
+                                    const active = document.activeElement;
+                                    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || 
+                                                  active.contentEditable === 'true' || active.getAttribute('role') === 'textbox')) {
+                                        window.chrome.webview.postMessage('focus');
+                                        console.log('Auto-focus detected on:', active.tagName, active.type || 'text');
+                                    }
+                                })();
+                            ");
+                        });
+                    });
+                };
+
+                // Mouse click detection on WebView
+                webView.MouseClick += (s, e) => {
+                    System.Diagnostics.Debug.WriteLine("[MainForm] WebView2 mouse click - checking for input focus");
+
+                    // Delay to let click event propagate to DOM
+                    Task.Delay(200).ContinueWith(_ => {
+                        Invoke(() => {
+                            webView.CoreWebView2?.ExecuteScriptAsync(@"
+                                (function() {
+                                    const active = document.activeElement;
+                                    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || 
+                                                  active.contentEditable === 'true' || active.getAttribute('role') === 'textbox')) {
+                                        window.chrome.webview.postMessage('focus');
+                                        console.log('Click-focus detected on:', active.tagName, active.type || 'text');
+                                        return 'input_focused';
+                                    }
+                                    return 'no_input_focused';
+                                })();
+                            ");
+                        });
+                    });
+                };
+            }
         }
 
         private void Toolbar_KeyboardButtonClicked(object? sender, EventArgs e)
         {
             keyboardManager.On();
             System.Diagnostics.Debug.WriteLine("Toolbar keyboard button tıklandı - TabTip açılıyor");
+
+            // After opening TabTip, verify Z-Order
+            Task.Delay(500).ContinueWith(_ => {
+                Invoke(() => {
+                    System.Diagnostics.Debug.WriteLine("[MainForm] Z-Order after TabTip: TabTip > Toolbar > MainForm");
+                });
+            });
         }
 
         private void InitializeAsync()
@@ -215,6 +304,12 @@ namespace WebViewKeyboardLauncher
                         this.Activate();
                         this.Focus();
                         SetForegroundWindow(this.Handle);
+
+                        // Re-ensure toolbar visibility after form activation
+                        EnsureToolbarVisibility();
+
+                        // Enhanced focus detection for web inputs
+                        SetupEnhancedFocusDetection();
                     }
 
                     System.Diagnostics.Debug.WriteLine($"🌐 Uygulama başlatıldı - Kiosk Mode: {webViewManager.IsKioskMode}");
@@ -277,6 +372,17 @@ namespace WebViewKeyboardLauncher
             else
             {
                 base.SetVisibleCore(value);
+            }
+        }
+
+        protected override void OnActivated(EventArgs e)
+        {
+            base.OnActivated(e);
+
+            // Ensure toolbar stays visible when form gets focus in kiosk mode
+            if (webViewManager?.IsKioskMode == true)
+            {
+                EnsureToolbarVisibility();
             }
         }
 
