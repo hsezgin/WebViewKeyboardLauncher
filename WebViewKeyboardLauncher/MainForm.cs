@@ -28,6 +28,11 @@ namespace WebViewKeyboardLauncher
         private KeyboardManager keyboardManager = null!;
         private WebViewManager webViewManager = null!;
 
+#if DEBUG
+        private System.Windows.Forms.Timer? debugSafetyTimer;
+        private int debugCountdown = 30;
+#endif
+
         // Windows API for kiosk mode window management
         [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -50,7 +55,104 @@ namespace WebViewKeyboardLauncher
             InitializeForm();
             InitializeManagers();
             InitializeAsync();
+
+#if DEBUG
+            SetupDebugSafetyTimer();
+#endif
         }
+
+#if DEBUG
+        private void SetupDebugSafetyTimer()
+        {
+            debugSafetyTimer = new System.Windows.Forms.Timer();
+            debugSafetyTimer.Interval = 1000; // Her saniye
+            debugSafetyTimer.Tick += DebugSafetyTimer_Tick;
+            debugSafetyTimer.Start();
+
+            System.Diagnostics.Debug.WriteLine("🛡️ DEBUG: Safety timer started - Auto exit in 30 seconds");
+        }
+
+        private void DebugSafetyTimer_Tick(object? sender, EventArgs e)
+        {
+            debugCountdown--;
+
+            // Her 5 saniyede log
+            if (debugCountdown % 5 == 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"🛡️ DEBUG: Auto exit in {debugCountdown} seconds...");
+            }
+
+            // Title'da countdown göster (sadece kiosk mode'da)
+            if (webViewManager?.IsKioskMode == true)
+            {
+                this.Text = $"DEBUG Kiosk Mode - Auto Exit: {debugCountdown}s";
+            }
+
+            if (debugCountdown <= 0)
+            {
+                debugSafetyTimer?.Stop();
+                System.Diagnostics.Debug.WriteLine("🛡️ DEBUG: Safety timer triggered - Force exit!");
+
+                // Zorla kiosk mode'dan çık
+                ForceExitKioskMode();
+            }
+        }
+
+        private void ForceExitKioskMode()
+        {
+            try
+            {
+                // Registry'yi temizle
+                using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WebViewKeyboardLauncher");
+                key?.SetValue("KioskMode", 0, Microsoft.Win32.RegistryValueKind.DWord);
+                key?.SetValue("FullscreenMode", 0, Microsoft.Win32.RegistryValueKind.DWord);
+
+                System.Diagnostics.Debug.WriteLine("🛡️ DEBUG: Registry cleaned");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"🛡️ DEBUG: Registry cleanup error: {ex.Message}");
+            }
+
+            // Form'u normal moda döndür
+            this.TopMost = false;
+            this.ShowInTaskbar = true;
+            this.ControlBox = true;
+            this.MaximizeBox = true;
+            this.MinimizeBox = true;
+            this.WindowState = FormWindowState.Normal;
+            this.FormBorderStyle = FormBorderStyle.Sizable;
+            this.Text = "WebView Keyboard Launcher - DEBUG MODE";
+
+            // Toolbar'ı normal moda döndür
+            if (toolbar != null)
+            {
+                toolbar.SetKioskMode(false);
+                toolbar.TopMost = false;
+            }
+
+            // WebViewManager'ı bilgilendir
+            webViewManager?.ExitKioskMode();
+
+            // Uyarı mesajı
+            MessageBox.Show("DEBUG SAFETY: Kiosk mode automatically disabled after 30 seconds!\n\nThis prevents being stuck in debug mode.",
+                "Debug Safety Exit", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+            System.Diagnostics.Debug.WriteLine("🛡️ DEBUG: Safety exit completed");
+        }
+
+        // Timer'ı durdurma metodu (manuel exit'te kullanmak için)
+        private void StopDebugSafetyTimer()
+        {
+            if (debugSafetyTimer != null)
+            {
+                debugSafetyTimer.Stop();
+                debugSafetyTimer.Dispose();
+                debugSafetyTimer = null;
+                System.Diagnostics.Debug.WriteLine("🛡️ DEBUG: Safety timer stopped");
+            }
+        }
+#endif
 
         private void InitializeForm()
         {
@@ -76,6 +178,10 @@ namespace WebViewKeyboardLauncher
             // WebViewManager setup
             webViewManager = new WebViewManager(webView);
             webViewManager.OnFocusReceived += () => keyboardManager.On();
+
+#if DEBUG
+            SetDebugKioskMode();
+#endif
             webViewManager.Initialize();
 
             // Toolbar setup - klavye erişimi her zaman garantili
@@ -187,6 +293,10 @@ namespace WebViewKeyboardLauncher
         {
             System.Diagnostics.Debug.WriteLine("[MainForm] Exiting kiosk mode...");
 
+#if DEBUG
+            StopDebugSafetyTimer();
+#endif
+
             // Exit kiosk mode in WebViewManager
             webViewManager.ExitKioskMode();
 
@@ -215,8 +325,11 @@ namespace WebViewKeyboardLauncher
 
         private void Toolbar_KeyboardButtonClicked(object? sender, EventArgs e)
         {
+            System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Keyboard button clicked - BEFORE TabTip");
+            System.Diagnostics.Debug.WriteLine($"🔍 [DEBUG] Toolbar TopMost: {toolbar?.TopMost}");
+            System.Diagnostics.Debug.WriteLine($"🔍 [DEBUG] MainForm TopMost: {this.TopMost}");
             keyboardManager.On();
-            System.Diagnostics.Debug.WriteLine("Toolbar keyboard button tıklandı - TabTip açılıyor");
+            System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Keyboard button clicked - AFTER TabTip command");
         }
 
         private void InitializeAsync()
@@ -301,14 +414,35 @@ namespace WebViewKeyboardLauncher
             }
         }
 
+        protected override void OnDeactivate(EventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] MainForm DEACTIVATED - protecting toolbar Z-Order");
+
+            if (webViewManager?.IsKioskMode == true && toolbar != null)
+            {
+                // Focus kaybederken toolbar'ı koru
+                toolbar.TopMost = true;
+                toolbar.BringToFront();
+                SetWindowPos(toolbar.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Toolbar Z-Order protected during deactivation");
+            }
+
+            base.OnDeactivate(e);
+        }
+
         protected override void OnActivated(EventArgs e)
         {
             base.OnActivated(e);
 
-            // Ensure toolbar stays visible when form gets focus in kiosk mode
-            if (webViewManager?.IsKioskMode == true)
+            System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] MainForm ACTIVATED - ensuring toolbar visibility");
+
+            if (webViewManager?.IsKioskMode == true && toolbar != null)
             {
-                EnsureToolbarAndSettingsVisibility();
+                // Focus geri geldiğinde de toolbar'ı koru
+                toolbar.TopMost = true;
+                toolbar.BringToFront();
+                SetWindowPos(toolbar.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Toolbar Z-Order ensured during activation");
             }
         }
 
@@ -316,6 +450,10 @@ namespace WebViewKeyboardLauncher
         {
             if (disposing)
             {
+#if DEBUG
+                StopDebugSafetyTimer();
+#endif
+
                 keyboardManager?.Cleanup();
                 toolbar?.Dispose();
 
@@ -343,5 +481,25 @@ namespace WebViewKeyboardLauncher
             keyboardManager?.Cleanup();
             base.OnFormClosing(e);
         }
+
+#if DEBUG
+        private void SetDebugKioskMode()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WebViewKeyboardLauncher");
+                key?.SetValue("KioskMode", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                key?.SetValue("FullscreenMode", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                key?.SetValue("Homepage", "https://promanage.sanovel.com.tr/sanovel/ui", Microsoft.Win32.RegistryValueKind.String);
+
+                System.Diagnostics.Debug.WriteLine("🔧 DEBUG: Kiosk mode zorla aktif edildi!");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ DEBUG: Registry yazma hatası: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine("⚠️  Visual Studio'yu Administrator olarak çalıştırın!");
+            }
+        }
+#endif
     }
 }

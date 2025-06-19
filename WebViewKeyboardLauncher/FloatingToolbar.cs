@@ -64,38 +64,28 @@ namespace WebViewKeyboardLauncher
         {
             _kioskMode = kioskMode;
 
+            // Settings button'ı HER ZAMAN göster (kiosk mode'da da)
+            _settingsButton.Visible = true;
+            this.Size = new Size(120, 50);
+
+            // Butonları normal konumlarında tut
+            _keyboardButton.Location = new Point(5, 5);
+            _keyboardButton.Size = new Size(50, 40);
+            _settingsButton.Location = new Point(65, 5);
+            _settingsButton.Size = new Size(50, 40);
+
             if (kioskMode)
             {
-                // Kiosk mode'da sadece keyboard button göster
-                _settingsButton.Visible = false;
-                this.Size = new Size(60, 50); // Sadece keyboard button için küçült
-
-                // Keyboard button'ı ortala
-                _keyboardButton.Location = new Point(5, 5);
-                _keyboardButton.Size = new Size(50, 40);
-
                 // Kiosk mode'da TopMost olarak ayarla
                 this.TopMost = true;
                 SetWindowPos(this.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-
-                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Kiosk mode: Settings hidden, keyboard only, TopMost enabled");
+                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Kiosk mode: Settings visible, TopMost enabled");
             }
             else
             {
-                // Normal mode'da her şeyi göster
-                _settingsButton.Visible = true;
-                this.Size = new Size(120, 50);
-
-                // Butonları yeniden konumlandır
-                _keyboardButton.Location = new Point(5, 5);
-                _keyboardButton.Size = new Size(50, 40);
-                _settingsButton.Location = new Point(65, 5);
-                _settingsButton.Size = new Size(50, 40);
-
                 // Normal mode'da TopMost'u kaldır
                 this.TopMost = false;
-
-                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Normal mode: All buttons visible, TopMost disabled");
+                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Normal mode: Settings visible, TopMost disabled");
             }
         }
 
@@ -172,9 +162,10 @@ namespace WebViewKeyboardLauncher
         {
             if (_settingsButtonForm != null && _kioskMode)
             {
+                System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Setting SettingsForm Z-Order to TopMost");
                 // Settings form'u da TopMost olarak ayarla
                 SetWindowPos(_settingsButtonForm.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] SettingsForm Z-Order set to TopMost");
+                System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] SettingsForm Z-Order set to TopMost");
             }
         }
 

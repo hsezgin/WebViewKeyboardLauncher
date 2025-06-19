@@ -1,17 +1,5 @@
 ﻿/*
- * Copyright 2025 SezginBilge
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * WebViewManager.cs - Registry Cache ile Performance Düzeltmesi
  */
 
 using Microsoft.Web.WebView2.Core;
@@ -30,9 +18,50 @@ public class WebViewManager
     private const string DEFAULT_URL = "https://hsezgin.github.io/WebViewKeyboardLauncher/welcome.html";
     public event Action? OnFocusReceived;
 
+    // 🔧 CACHE EKLEME - Registry sürekli okunmasın
+    private bool _cacheInitialized = false;
+    private bool _cachedKioskMode = false;
+    private bool _cachedFullscreenMode = false;
+    private string _cachedHomepageUrl = DEFAULT_URL;
+
     public WebViewManager(WebView2 webView)
     {
         _webView = webView ?? throw new ArgumentNullException(nameof(webView));
+    }
+
+    /// <summary>
+    /// Cache'i bir kez initialize et
+    /// </summary>
+    private void InitializeCache()
+    {
+        if (_cacheInitialized) return;
+
+        try
+        {
+            using var key = OpenRegistryKey(false);
+            if (key != null)
+            {
+                _cachedKioskMode = (key.GetValue("KioskMode") as int?) == 1;
+                _cachedFullscreenMode = (key.GetValue("FullscreenMode") as int?) == 1;
+
+                if (key.GetValue("Homepage") is string url && !string.IsNullOrWhiteSpace(url))
+                {
+                    _cachedHomepageUrl = url;
+                }
+
+                Debug.WriteLine($"[WebViewManager] Cache initialized - Kiosk:{_cachedKioskMode}, Fullscreen:{_cachedFullscreenMode}, URL:{_cachedHomepageUrl}");
+            }
+            else
+            {
+                Debug.WriteLine("[WebViewManager] Registry not found, using defaults");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[WebViewManager] Cache initialization error: {ex.Message}");
+        }
+
+        _cacheInitialized = true;
     }
 
     /// <summary>
@@ -44,7 +73,6 @@ public class WebViewManager
         using var key64 = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY_64);
         if (key64 != null)
         {
-            Debug.WriteLine("[WebViewManager] 64-bit registry konumu kullanılıyor");
             return REGISTRY_KEY_64;
         }
 
@@ -52,12 +80,10 @@ public class WebViewManager
         using var key32 = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY_32);
         if (key32 != null)
         {
-            Debug.WriteLine("[WebViewManager] 32-bit registry konumu (WOW6432Node) kullanılıyor");
             return REGISTRY_KEY_32;
         }
 
         // Hiçbiri yoksa 64-bit konumunu varsayılan olarak döndür
-        Debug.WriteLine("[WebViewManager] Registry bulunamadı, 64-bit konumu varsayılan olarak kullanılacak");
         return REGISTRY_KEY_64;
     }
 
@@ -66,7 +92,6 @@ public class WebViewManager
     /// </summary>
     private RegistryKey? OpenRegistryKey(bool writable = false)
     {
-        // Önce mevcut konumu bul
         string keyPath = GetRegistryKey();
 
         try
@@ -89,6 +114,9 @@ public class WebViewManager
 
     public void Initialize()
     {
+        // İlk başta cache'i yükle
+        InitializeCache();
+
         var userDataFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "WebViewKeyboardLauncher");
@@ -117,8 +145,18 @@ public class WebViewManager
             switch (message)
             {
                 case "focus":
-                    Debug.WriteLine("[WebViewManager] Focus mesajı alındı");
+                    System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] WebView Focus event received - BEFORE keyboard trigger");
                     OnFocusReceived?.Invoke();
+
+                    // Focus event sonrası 100ms bekleyip toolbar'ı koru
+                    System.Threading.Tasks.Task.Delay(100).ContinueWith(_ =>
+                    {
+                        System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Post-focus toolbar protection triggered");
+                        OnToolbarProtectionNeeded?.Invoke();
+                    });
+
+
+                    System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] WebView Focus event processed - AFTER keyboard trigger");
                     break;
                 case "refresh":
                     Debug.WriteLine("[WebViewManager] Refresh mesajı alındı");
@@ -130,40 +168,42 @@ public class WebViewManager
             }
         };
 
-        // Basit focus detection - sadece web sayfasından gelen event'ları dinle
+        // Script aynı kalacak...
         string script = @"
-            window.addEventListener('load', () => {
-                document.body.addEventListener('focusin', function(e) {
-                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || 
-                        e.target.contentEditable === 'true' || e.target.getAttribute('role') === 'textbox') {
-                        window.chrome.webview.postMessage('focus');
-                    }
-                }, true);
+        window.addEventListener('load', () => {
+            console.log('🔍 [WEB DEBUG] Page loaded, setting up focus listeners');
+            
+            document.body.addEventListener('focusin', function(e) {
+                console.log('🔍 [WEB DEBUG] Focus event on:', e.target.tagName, e.target.type);
+                
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || 
+                    e.target.contentEditable === 'true' || e.target.getAttribute('role') === 'textbox') {
+                    console.log('🔍 [WEB DEBUG] Triggering keyboard for focus on:', e.target.tagName);
+                    window.chrome.webview.postMessage('focus');
+                } else {
+                    console.log('🔍 [WEB DEBUG] Focus ignored for:', e.target.tagName);
+                }
+            }, true);
+            
+            window.addEventListener('focus', () => {
+                console.log('🔍 [WEB DEBUG] Window gained focus');
             });
-        ";
+            
+            window.addEventListener('blur', () => {
+                console.log('🔍 [WEB DEBUG] Window lost focus');
+            });
+        });
+    ";
 
         _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
     }
 
+    public event Action? OnToolbarProtectionNeeded;
+
     public string GetHomepageUrl()
     {
-        try
-        {
-            using var key = OpenRegistryKey(false);
-            if (key?.GetValue("Homepage") is string url && !string.IsNullOrWhiteSpace(url))
-            {
-                Debug.WriteLine($"[WebViewManager] Registry'den URL alındı: {url}");
-                return url;
-            }
-
-            Debug.WriteLine("[WebViewManager] Registry'de URL bulunamadı, default URL kullanılıyor");
-            return DEFAULT_URL;
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[WebViewManager] Registry okuma hatası: {ex.Message}");
-            return DEFAULT_URL;
-        }
+        InitializeCache();
+        return _cachedHomepageUrl;
     }
 
     public void SetHomepageUrl(string url)
@@ -175,6 +215,10 @@ public class WebViewManager
         {
             using var key = OpenRegistryKey(true);
             key?.SetValue("Homepage", url, RegistryValueKind.String);
+
+            // Cache'i güncelle
+            _cachedHomepageUrl = url;
+
             Debug.WriteLine($"[WebViewManager] URL registry'ye kaydedildi: {url}");
         }
         catch (UnauthorizedAccessException)
@@ -189,53 +233,35 @@ public class WebViewManager
         }
     }
 
+    // 🔧 CACHE'DEN DÖNECEK - Registry'ye sürekli erişim yok
     public bool IsKioskModeEnabled()
     {
-        return GetKioskModeFromRegistry();
+        InitializeCache();
+        return _cachedKioskMode;
     }
 
     public bool IsFullscreenModeEnabled()
     {
-        return GetFullscreenModeFromRegistry();
+        InitializeCache();
+        return _cachedFullscreenMode;
     }
 
-    // Property versions for MainForm compatibility
-    public bool IsKioskMode => GetKioskModeFromRegistry();
-    public bool IsFullscreen => GetFullscreenModeFromRegistry();
-
-    private bool GetKioskModeFromRegistry()
+    // Property versions for MainForm compatibility - CACHE'den gelecek
+    public bool IsKioskMode
     {
-        try
+        get
         {
-            using var key = OpenRegistryKey(false);
-            if (key?.GetValue("KioskMode") is int kioskMode)
-            {
-                return kioskMode == 1;
-            }
-            return false;
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[WebViewManager] Kiosk mode kontrolü hatası: {ex.Message}");
-            return false;
+            InitializeCache();
+            return _cachedKioskMode;
         }
     }
 
-    private bool GetFullscreenModeFromRegistry()
+    public bool IsFullscreen
     {
-        try
+        get
         {
-            using var key = OpenRegistryKey(false);
-            if (key?.GetValue("FullscreenMode") is int fullscreenMode)
-            {
-                return fullscreenMode == 1;
-            }
-            return false;
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[WebViewManager] Fullscreen mode kontrolü hatası: {ex.Message}");
-            return false;
+            InitializeCache();
+            return _cachedFullscreenMode;
         }
     }
 
@@ -247,7 +273,11 @@ public class WebViewManager
             key?.SetValue("KioskMode", 0, RegistryValueKind.DWord);
             key?.SetValue("FullscreenMode", 0, RegistryValueKind.DWord);
 
-            Debug.WriteLine("[WebViewManager] Kiosk mode disabled in registry");
+            // Cache'i güncelle
+            _cachedKioskMode = false;
+            _cachedFullscreenMode = false;
+
+            Debug.WriteLine("[WebViewManager] Kiosk mode disabled in registry and cache");
 
             // Show taskbar
             ShowTaskbar();
@@ -341,6 +371,7 @@ public class WebViewManager
         Debug.WriteLine($"32-bit Registry ({REGISTRY_KEY_32}): {(key32 != null ? "MEVCUT" : "YOK")}");
 
         Debug.WriteLine($"Aktif konum: {GetRegistryKey()}");
+        Debug.WriteLine($"Cache: Kiosk={_cachedKioskMode}, Fullscreen={_cachedFullscreenMode}");
         Debug.WriteLine("========================");
     }
 }
