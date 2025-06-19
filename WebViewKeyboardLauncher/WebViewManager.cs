@@ -25,7 +25,8 @@ namespace WebViewKeyboardLauncher;
 public class WebViewManager
 {
     private readonly WebView2 _webView;
-    private const string REGISTRY_KEY = @"SOFTWARE\WebViewKeyboardLauncher";
+    private const string REGISTRY_KEY_64 = @"SOFTWARE\WebViewKeyboardLauncher";
+    private const string REGISTRY_KEY_32 = @"SOFTWARE\WOW6432Node\WebViewKeyboardLauncher";
     private const string DEFAULT_URL = "https://hsezgin.github.io/WebViewKeyboardLauncher/welcome.html";
 
     public event Action? OnFocusReceived;
@@ -33,6 +34,58 @@ public class WebViewManager
     public WebViewManager(WebView2 webView)
     {
         _webView = webView ?? throw new ArgumentNullException(nameof(webView));
+    }
+
+    /// <summary>
+    /// Registry anahtarının mevcut olduğu konumu bulur (32-bit veya 64-bit)
+    /// </summary>
+    private string GetRegistryKey()
+    {
+        // Önce 64-bit konumunu kontrol et
+        using var key64 = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY_64);
+        if (key64 != null)
+        {
+            Debug.WriteLine("[WebViewManager] 64-bit registry konumu kullanılıyor");
+            return REGISTRY_KEY_64;
+        }
+
+        // Bulamazsa 32-bit konumunu kontrol et
+        using var key32 = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY_32);
+        if (key32 != null)
+        {
+            Debug.WriteLine("[WebViewManager] 32-bit registry konumu (WOW6432Node) kullanılıyor");
+            return REGISTRY_KEY_32;
+        }
+
+        // Hiçbiri yoksa 64-bit konumunu varsayılan olarak döndür
+        Debug.WriteLine("[WebViewManager] Registry bulunamadı, 64-bit konumu varsayılan olarak kullanılacak");
+        return REGISTRY_KEY_64;
+    }
+
+    /// <summary>
+    /// Hem 32-bit hem 64-bit konumlardan registry değeri okur
+    /// </summary>
+    private RegistryKey? OpenRegistryKey(bool writable = false)
+    {
+        // Önce mevcut konumu bul
+        string keyPath = GetRegistryKey();
+
+        try
+        {
+            if (writable)
+            {
+                return Registry.LocalMachine.CreateSubKey(keyPath);
+            }
+            else
+            {
+                return Registry.LocalMachine.OpenSubKey(keyPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[WebViewManager] Registry açma hatası ({keyPath}): {ex.Message}");
+            return null;
+        }
     }
 
     public void Initialize()
@@ -87,8 +140,7 @@ public class WebViewManager
     {
         try
         {
-            // HKEY_LOCAL_MACHINE'den URL'i oku (admin controlled)
-            using var key = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY);
+            using var key = OpenRegistryKey(false);
             if (key?.GetValue("Homepage") is string url && !string.IsNullOrWhiteSpace(url))
             {
                 Debug.WriteLine($"[WebViewManager] Registry'den URL alındı: {url}");
@@ -112,8 +164,7 @@ public class WebViewManager
 
         try
         {
-            // HKEY_LOCAL_MACHINE'e yaz (admin rights gerekli)
-            using var key = Registry.LocalMachine.CreateSubKey(REGISTRY_KEY);
+            using var key = OpenRegistryKey(true);
             key?.SetValue("Homepage", url, RegistryValueKind.String);
             Debug.WriteLine($"[WebViewManager] URL registry'ye kaydedildi: {url}");
         }
@@ -147,7 +198,7 @@ public class WebViewManager
     {
         try
         {
-            using var key = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY);
+            using var key = OpenRegistryKey(false);
             if (key?.GetValue("KioskMode") is int kioskMode)
             {
                 return kioskMode == 1;
@@ -165,7 +216,7 @@ public class WebViewManager
     {
         try
         {
-            using var key = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY);
+            using var key = OpenRegistryKey(false);
             if (key?.GetValue("FullscreenMode") is int fullscreenMode)
             {
                 return fullscreenMode == 1;
@@ -183,8 +234,7 @@ public class WebViewManager
     {
         try
         {
-            // Set kiosk mode to disabled in registry
-            using var key = Registry.LocalMachine.CreateSubKey(REGISTRY_KEY);
+            using var key = OpenRegistryKey(true);
             key?.SetValue("KioskMode", 0, RegistryValueKind.DWord);
             key?.SetValue("FullscreenMode", 0, RegistryValueKind.DWord);
 
@@ -267,4 +317,21 @@ public class WebViewManager
     }
 
     public WebView2 Raw => _webView;
+
+    /// <summary>
+    /// Debug amaçlı: Registry durumunu kontrol eder
+    /// </summary>
+    public void LogRegistryStatus()
+    {
+        Debug.WriteLine("=== Registry Status ===");
+
+        using var key64 = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY_64);
+        Debug.WriteLine($"64-bit Registry ({REGISTRY_KEY_64}): {(key64 != null ? "MEVCUT" : "YOK")}");
+
+        using var key32 = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY_32);
+        Debug.WriteLine($"32-bit Registry ({REGISTRY_KEY_32}): {(key32 != null ? "MEVCUT" : "YOK")}");
+
+        Debug.WriteLine($"Aktif konum: {GetRegistryKey()}");
+        Debug.WriteLine("========================");
+    }
 }
