@@ -113,8 +113,7 @@ namespace WebViewKeyboardLauncher
                     _settingsButtonForm.SetWebViewManager(_webViewManager);
                 }
 
-                // ✅ BASİT: Normal TopMost davranışı
-                _settingsButtonForm.TopMost = false;
+                _settingsButtonForm.TopMost = true;
 
                 PositionSettingsForm();
                 _settingsButtonForm.Show();

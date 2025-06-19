@@ -49,11 +49,11 @@ namespace WebViewKeyboardLauncher
         }
 
         // ✅ BASİT: Sadece normal TopMost davranışı
-        public void SetKioskModeTopMost(bool kioskMode)
-        {
-            this.TopMost = false; // Her iki modda da normal davranış
-            System.Diagnostics.Debug.WriteLine($"[SettingsButtonForm] Mode: {(kioskMode ? "Kiosk" : "Normal")} - Standard behavior");
-        }
+        //public void SetKioskModeTopMost(bool kioskMode)
+        //{
+          //  this.TopMost = true; // Her iki modda da normal davranış
+         //   System.Diagnostics.Debug.WriteLine($"[SettingsButtonForm] Mode: {(kioskMode ? "Kiosk" : "Normal")} - Standard behavior");
+        //}
 
         private void ApplyButtonStyles()
         {
