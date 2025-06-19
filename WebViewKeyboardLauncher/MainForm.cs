@@ -33,7 +33,7 @@ namespace WebViewKeyboardLauncher
         private int debugCountdown = 30;
 #endif
 
-        // Windows API for kiosk mode window management
+        // Windows API for window management
         [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
@@ -43,11 +43,15 @@ namespace WebViewKeyboardLauncher
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetWindowLong(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
         private const uint SWP_NOMOVE = 0x0002;
         private const uint SWP_NOSIZE = 0x0001;
         private const uint SWP_SHOWWINDOW = 0x0040;
+        private const int GWL_HWNDPARENT = -8;
 
         public MainForm()
         {
@@ -177,6 +181,8 @@ namespace WebViewKeyboardLauncher
 
             // WebViewManager setup
             webViewManager = new WebViewManager(webView);
+
+            // ✅ TEMIZ ÇÖZÜM: Sadece throttle, Z-order manipülasyonu yok
             webViewManager.OnFocusReceived += () => keyboardManager.On();
 
 #if DEBUG
@@ -184,41 +190,74 @@ namespace WebViewKeyboardLauncher
 #endif
             webViewManager.Initialize();
 
-            // Toolbar setup - klavye erişimi her zaman garantili
+            // Toolbar setup
             toolbar = new FloatingToolbar();
             toolbar.KeyboardButtonClicked += Toolbar_KeyboardButtonClicked;
             toolbar.SetWebViewManager(webViewManager);
 
-            // Apply kiosk mode settings to form AFTER toolbar creation
+            // Apply kiosk mode settings
             ApplyKioskModeToForm();
 
-            // Kiosk mode'da toolbar'ı özel modda göster (sadece klavye butonu)
             if (webViewManager.IsKioskMode)
             {
-                toolbar.SetKioskMode(true); // Settings gizle, sadece keyboard kalsın
-                System.Diagnostics.Debug.WriteLine("[MainForm] Toolbar in kiosk mode - keyboard only");
+                toolbar.SetKioskMode(true);
+
+                // ✅ WINDOW GROUPING: Toolbar'ı MainForm'un "owned window"ı yap
+                SetupWindowGrouping();
+
+                System.Diagnostics.Debug.WriteLine("[MainForm] Toolbar in kiosk mode with window grouping");
             }
 
-            // Her durumda toolbar'ı göster (klavye erişimi için)
             toolbar.Show();
-
-            // Z-Order düzeltmesi - hem toolbar hem settings formları için
-            EnsureToolbarAndSettingsVisibility();
         }
 
-        private void EnsureToolbarAndSettingsVisibility()
+        // ✅ TEST ÇÖZÜMÜ: Group + Periodic Z-Order Maintenance
+        private void SetupWindowGrouping()
         {
-            if (webViewManager?.IsKioskMode == true && toolbar != null)
+            try
             {
-                // Toolbar'ı en üstte tut
+                // 1. Owner relationship kur
+                SetWindowLong(toolbar.Handle, GWL_HWNDPARENT, this.Handle);
+
+                // 2. Her ikisini de TopMost yap
+                this.TopMost = true;
                 toolbar.TopMost = true;
-                toolbar.Show();
+
+                // 3. Toolbar'ı öne getir
                 toolbar.BringToFront();
 
-                // Toolbar'ın Z-Order pozisyonu
-                SetWindowPos(toolbar.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                System.Diagnostics.Debug.WriteLine("🔗 [GROUPING] Basic grouping established");
 
-                System.Diagnostics.Debug.WriteLine("[MainForm] Toolbar Z-Order: TopMost, above MainForm");
+                // 4. ✅ YENİ: Periyodik Z-order maintenance (sadece kiosk mode'da)
+                if (webViewManager.IsKioskMode)
+                {
+                    var zOrderTimer = new System.Windows.Forms.Timer();
+                    zOrderTimer.Interval = 2000; // Her 2 saniyede
+                    zOrderTimer.Tick += (s, e) => {
+                        try
+                        {
+                            if (toolbar != null && !toolbar.IsDisposed && toolbar.Visible)
+                            {
+                                toolbar.BringToFront();
+                                System.Diagnostics.Debug.WriteLine("🔗 [MAINTENANCE] Toolbar Z-order maintained");
+                            }
+                        }
+                        catch { }
+                    };
+                    zOrderTimer.Start();
+
+                    System.Diagnostics.Debug.WriteLine("🔗 [GROUPING] Z-order maintenance timer started");
+                }
+
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ [GROUPING] Grouping failed: {ex.Message}");
+
+                // Fallback
+                toolbar.TopMost = true;
+                this.TopMost = true;
+                toolbar.BringToFront();
             }
         }
 
@@ -233,9 +272,6 @@ namespace WebViewKeyboardLauncher
 
             System.Diagnostics.Debug.WriteLine("[MainForm] Applying kiosk mode settings");
 
-            // Kiosk mode - set as topmost but lowest priority among topmost windows
-            this.TopMost = true;
-
             // Prevent form from being moved or resized
             this.MaximizeBox = false;
             this.MinimizeBox = false;
@@ -246,9 +282,6 @@ namespace WebViewKeyboardLauncher
             this.KeyPreview = true;
             this.KeyDown += MainForm_KeyDown;
 
-            // Set MainForm as TopMost but with lower priority than toolbar
-            SetWindowPos(this.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-
             // Hide taskbar in fullscreen mode
             if (webViewManager.IsFullscreen)
             {
@@ -257,7 +290,7 @@ namespace WebViewKeyboardLauncher
                 this.WindowState = FormWindowState.Maximized;
             }
 
-            System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode applied - Z-Order: MainForm < Toolbar/Settings < TabTip");
+            System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode applied - Using window grouping for Z-Order");
         }
 
         private void MainForm_KeyDown(object? sender, KeyEventArgs e)
@@ -325,11 +358,8 @@ namespace WebViewKeyboardLauncher
 
         private void Toolbar_KeyboardButtonClicked(object? sender, EventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Keyboard button clicked - BEFORE TabTip");
-            System.Diagnostics.Debug.WriteLine($"🔍 [DEBUG] Toolbar TopMost: {toolbar?.TopMost}");
-            System.Diagnostics.Debug.WriteLine($"🔍 [DEBUG] MainForm TopMost: {this.TopMost}");
+            System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Keyboard button clicked");
             keyboardManager.On();
-            System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Keyboard button clicked - AFTER TabTip command");
         }
 
         private void InitializeAsync()
@@ -346,9 +376,6 @@ namespace WebViewKeyboardLauncher
                         this.Activate();
                         this.Focus();
                         SetForegroundWindow(this.Handle);
-
-                        // Re-ensure toolbar visibility after form activation
-                        EnsureToolbarAndSettingsVisibility();
                     }
 
                     System.Diagnostics.Debug.WriteLine($"🌐 Uygulama başlatıldı - Kiosk Mode: {webViewManager.IsKioskMode}");
@@ -411,38 +438,6 @@ namespace WebViewKeyboardLauncher
             else
             {
                 base.SetVisibleCore(value);
-            }
-        }
-
-        protected override void OnDeactivate(EventArgs e)
-        {
-            System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] MainForm DEACTIVATED - protecting toolbar Z-Order");
-
-            if (webViewManager?.IsKioskMode == true && toolbar != null)
-            {
-                // Focus kaybederken toolbar'ı koru
-                toolbar.TopMost = true;
-                toolbar.BringToFront();
-                SetWindowPos(toolbar.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Toolbar Z-Order protected during deactivation");
-            }
-
-            base.OnDeactivate(e);
-        }
-
-        protected override void OnActivated(EventArgs e)
-        {
-            base.OnActivated(e);
-
-            System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] MainForm ACTIVATED - ensuring toolbar visibility");
-
-            if (webViewManager?.IsKioskMode == true && toolbar != null)
-            {
-                // Focus geri geldiğinde de toolbar'ı koru
-                toolbar.TopMost = true;
-                toolbar.BringToFront();
-                SetWindowPos(toolbar.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Toolbar Z-Order ensured during activation");
             }
         }
 

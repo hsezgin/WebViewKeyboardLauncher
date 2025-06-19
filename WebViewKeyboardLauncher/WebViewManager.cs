@@ -1,5 +1,5 @@
 ﻿/*
- * WebViewManager.cs - Registry Cache ile Performance Düzeltmesi
+ * WebViewManager.cs - Z-Index Sorun Çözümü
  */
 
 using Microsoft.Web.WebView2.Core;
@@ -18,20 +18,30 @@ public class WebViewManager
     private const string DEFAULT_URL = "https://hsezgin.github.io/WebViewKeyboardLauncher/welcome.html";
     public event Action? OnFocusReceived;
 
-    // 🔧 CACHE EKLEME - Registry sürekli okunmasın
+    // Cache
     private bool _cacheInitialized = false;
     private bool _cachedKioskMode = false;
     private bool _cachedFullscreenMode = false;
     private string _cachedHomepageUrl = DEFAULT_URL;
+
+    // TabTip pencere takibi için
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetActiveWindow();
+
+    // Toolbar referansı - Z-order koruma için
+    public event Action? OnKeyboardOpened;
 
     public WebViewManager(WebView2 webView)
     {
         _webView = webView ?? throw new ArgumentNullException(nameof(webView));
     }
 
-    /// <summary>
-    /// Cache'i bir kez initialize et
-    /// </summary>
     private void InitializeCache()
     {
         if (_cacheInitialized) return;
@@ -64,32 +74,23 @@ public class WebViewManager
         _cacheInitialized = true;
     }
 
-    /// <summary>
-    /// Registry anahtarının mevcut olduğu konumu bulur (32-bit veya 64-bit)
-    /// </summary>
     private string GetRegistryKey()
     {
-        // Önce 64-bit konumunu kontrol et
         using var key64 = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY_64);
         if (key64 != null)
         {
             return REGISTRY_KEY_64;
         }
 
-        // Bulamazsa 32-bit konumunu kontrol et
         using var key32 = Registry.LocalMachine.OpenSubKey(REGISTRY_KEY_32);
         if (key32 != null)
         {
             return REGISTRY_KEY_32;
         }
 
-        // Hiçbiri yoksa 64-bit konumunu varsayılan olarak döndür
         return REGISTRY_KEY_64;
     }
 
-    /// <summary>
-    /// Hem 32-bit hem 64-bit konumlardan registry değeri okur
-    /// </summary>
     private RegistryKey? OpenRegistryKey(bool writable = false)
     {
         string keyPath = GetRegistryKey();
@@ -114,7 +115,6 @@ public class WebViewManager
 
     public void Initialize()
     {
-        // İlk başta cache'i yükle
         InitializeCache();
 
         var userDataFolder = Path.Combine(
@@ -139,24 +139,31 @@ public class WebViewManager
 
     private void RegisterFocusAndMessageListeners()
     {
+        // ✅ THROTTLE - Focus event'lerini de throttle et
+        DateTime lastFocusEvent = DateTime.MinValue;
+        const int FOCUS_COOLDOWN_MS = 300;
+
         _webView.CoreWebView2.WebMessageReceived += (sender, e) =>
         {
             string message = e.TryGetWebMessageAsString();
             switch (message)
             {
                 case "focus":
-                    System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] WebView Focus event received - BEFORE keyboard trigger");
+                    // ✅ THROTTLE CHECK
+                    var now = DateTime.Now;
+                    if ((now - lastFocusEvent).TotalMilliseconds < FOCUS_COOLDOWN_MS)
+                    {
+                        Debug.WriteLine($"🔍 [THROTTLE] Focus ignored - cooldown active ({(now - lastFocusEvent).TotalMilliseconds}ms)");
+                        return;
+                    }
+
+                    lastFocusEvent = now;
+                    Debug.WriteLine("🔍 [DEBUG] WebView Focus event received");
+
+                    // TabTip'i aç
                     OnFocusReceived?.Invoke();
 
-                    // Focus event sonrası 100ms bekleyip toolbar'ı koru
-                    System.Threading.Tasks.Task.Delay(100).ContinueWith(_ =>
-                    {
-                        System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] Post-focus toolbar protection triggered");
-                        OnToolbarProtectionNeeded?.Invoke();
-                    });
-
-
-                    System.Diagnostics.Debug.WriteLine("🔍 [DEBUG] WebView Focus event processed - AFTER keyboard trigger");
+                    Debug.WriteLine("🔍 [DEBUG] Focus events completed");
                     break;
                 case "refresh":
                     Debug.WriteLine("[WebViewManager] Refresh mesajı alındı");
@@ -168,37 +175,45 @@ public class WebViewManager
             }
         };
 
-        // Script aynı kalacak...
+        // JavaScript'i basitleştir - sadece gerçek input focus'ları dinle
         string script = @"
         window.addEventListener('load', () => {
-            console.log('🔍 [WEB DEBUG] Page loaded, setting up focus listeners');
+            console.log('🔍 [WEB DEBUG] Page loaded, setting up THROTTLED focus listeners');
             
-            document.body.addEventListener('focusin', function(e) {
-                console.log('🔍 [WEB DEBUG] Focus event on:', e.target.tagName, e.target.type);
+            let lastFocusTime = 0;
+            const FOCUS_THROTTLE = 300; // 300ms throttle
+            
+            document.addEventListener('focusin', function(e) {
+                const now = Date.now();
+                if (now - lastFocusTime < FOCUS_THROTTLE) {
+                    console.log('🔍 [WEB THROTTLE] Focus ignored - too frequent');
+                    return;
+                }
                 
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || 
-                    e.target.contentEditable === 'true' || e.target.getAttribute('role') === 'textbox') {
-                    console.log('🔍 [WEB DEBUG] Triggering keyboard for focus on:', e.target.tagName);
+                console.log('🔍 [WEB DEBUG] Focus event on:', e.target.tagName, e.target.type || 'no-type');
+                
+                const target = e.target;
+                const needsKeyboard = (
+                    target.tagName === 'INPUT' && 
+                    ['text', 'email', 'password', 'number', 'tel', 'url', 'search'].includes(target.type)
+                ) || 
+                target.tagName === 'TEXTAREA' || 
+                target.contentEditable === 'true' || 
+                target.getAttribute('role') === 'textbox';
+                
+                if (needsKeyboard) {
+                    lastFocusTime = now;
+                    console.log('🔍 [WEB DEBUG] Triggering keyboard for:', target.tagName, target.type);
                     window.chrome.webview.postMessage('focus');
                 } else {
-                    console.log('🔍 [WEB DEBUG] Focus ignored for:', e.target.tagName);
+                    console.log('🔍 [WEB DEBUG] Focus ignored for:', target.tagName);
                 }
             }, true);
-            
-            window.addEventListener('focus', () => {
-                console.log('🔍 [WEB DEBUG] Window gained focus');
-            });
-            
-            window.addEventListener('blur', () => {
-                console.log('🔍 [WEB DEBUG] Window lost focus');
-            });
         });
     ";
 
         _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
     }
-
-    public event Action? OnToolbarProtectionNeeded;
 
     public string GetHomepageUrl()
     {
@@ -216,7 +231,6 @@ public class WebViewManager
             using var key = OpenRegistryKey(true);
             key?.SetValue("Homepage", url, RegistryValueKind.String);
 
-            // Cache'i güncelle
             _cachedHomepageUrl = url;
 
             Debug.WriteLine($"[WebViewManager] URL registry'ye kaydedildi: {url}");
@@ -233,7 +247,6 @@ public class WebViewManager
         }
     }
 
-    // 🔧 CACHE'DEN DÖNECEK - Registry'ye sürekli erişim yok
     public bool IsKioskModeEnabled()
     {
         InitializeCache();
@@ -246,7 +259,6 @@ public class WebViewManager
         return _cachedFullscreenMode;
     }
 
-    // Property versions for MainForm compatibility - CACHE'den gelecek
     public bool IsKioskMode
     {
         get
@@ -273,13 +285,10 @@ public class WebViewManager
             key?.SetValue("KioskMode", 0, RegistryValueKind.DWord);
             key?.SetValue("FullscreenMode", 0, RegistryValueKind.DWord);
 
-            // Cache'i güncelle
             _cachedKioskMode = false;
             _cachedFullscreenMode = false;
 
             Debug.WriteLine("[WebViewManager] Kiosk mode disabled in registry and cache");
-
-            // Show taskbar
             ShowTaskbar();
         }
         catch (Exception ex)
@@ -287,9 +296,6 @@ public class WebViewManager
             Debug.WriteLine($"[WebViewManager] Kiosk mode exit hatası: {ex.Message}");
         }
     }
-
-    [DllImport("user32.dll")]
-    private static extern int FindWindow(string? className, string? windowText);
 
     [DllImport("user32.dll")]
     private static extern int ShowWindow(int hwnd, int command);
@@ -301,11 +307,10 @@ public class WebViewManager
     {
         try
         {
-            int hwnd = FindWindow("Shell_TrayWnd", "");
+            int hwnd = FindWindow("Shell_TrayWnd", "").ToInt32();
             ShowWindow(hwnd, SW_SHOW);
 
-            // Also show start button
-            hwnd = FindWindow("Button", null);
+            hwnd = FindWindow("Button", null).ToInt32();
             ShowWindow(hwnd, SW_SHOW);
 
             Debug.WriteLine("[WebViewManager] Taskbar shown");
@@ -320,11 +325,10 @@ public class WebViewManager
     {
         try
         {
-            int hwnd = FindWindow("Shell_TrayWnd", "");
+            int hwnd = FindWindow("Shell_TrayWnd", "").ToInt32();
             ShowWindow(hwnd, SW_HIDE);
 
-            // Also hide start button
-            hwnd = FindWindow("Button", "");
+            hwnd = FindWindow("Button", "").ToInt32();
             ShowWindow(hwnd, SW_HIDE);
 
             Debug.WriteLine("[WebViewManager] Taskbar hidden");
@@ -357,9 +361,6 @@ public class WebViewManager
 
     public WebView2 Raw => _webView;
 
-    /// <summary>
-    /// Debug amaçlı: Registry durumunu kontrol eder
-    /// </summary>
     public void LogRegistryStatus()
     {
         Debug.WriteLine("=== Registry Status ===");

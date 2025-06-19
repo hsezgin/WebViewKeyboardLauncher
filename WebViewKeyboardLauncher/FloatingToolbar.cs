@@ -64,7 +64,7 @@ namespace WebViewKeyboardLauncher
         {
             _kioskMode = kioskMode;
 
-            // Settings button'ı HER ZAMAN göster (kiosk mode'da da)
+            // Settings button'ı HER ZAMAN göster
             _settingsButton.Visible = true;
             this.Size = new Size(120, 50);
 
@@ -76,16 +76,16 @@ namespace WebViewKeyboardLauncher
 
             if (kioskMode)
             {
-                // Kiosk mode'da TopMost olarak ayarla
-                this.TopMost = true;
-                SetWindowPos(this.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Kiosk mode: Settings visible, TopMost enabled");
+                // ✅ DEĞİŞİKLİK: Artık TopMost yapmıyoruz, MainForm grouping yapacak
+                this.TopMost = false; // Window grouping kullanılacak
+
+                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Kiosk mode: Using window grouping instead of TopMost");
             }
             else
             {
                 // Normal mode'da TopMost'u kaldır
                 this.TopMost = false;
-                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Normal mode: Settings visible, TopMost disabled");
+                System.Diagnostics.Debug.WriteLine("[FloatingToolbar] Normal mode: TopMost disabled");
             }
         }
 
