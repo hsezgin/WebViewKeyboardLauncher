@@ -46,14 +46,10 @@ namespace WebViewKeyboardLauncher
 
             BindEvents();
             InitializeTimers();
-        }
 
-        // ✅ BASİT: Sadece normal TopMost davranışı
-        //public void SetKioskModeTopMost(bool kioskMode)
-        //{
-          //  this.TopMost = true; // Her iki modda da normal davranış
-         //   System.Diagnostics.Debug.WriteLine($"[SettingsButtonForm] Mode: {(kioskMode ? "Kiosk" : "Normal")} - Standard behavior");
-        //}
+            // ✅ TopMost her zaman true (normal davranış)
+            this.TopMost = true;
+        }
 
         private void ApplyButtonStyles()
         {

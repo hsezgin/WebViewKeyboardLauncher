@@ -27,6 +27,7 @@ namespace WebViewKeyboardLauncher
         private FloatingToolbar toolbar = null!;
         private KeyboardManager keyboardManager = null!;
         private WebViewManager webViewManager = null!;
+        private KeyboardBlocker? keyboardBlocker; // ✅ YENİ: Tuş engelleme sistemi
 
 #if DEBUG
         private System.Windows.Forms.Timer? debugSafetyTimer;
@@ -100,6 +101,9 @@ namespace WebViewKeyboardLauncher
                 System.Diagnostics.Debug.WriteLine($"🛡️ DEBUG: Registry cleanup error: {ex.Message}");
             }
 
+            // Keyboard blocker'ı durdur
+            keyboardBlocker?.StopBlocking();
+
             // Normal form davranışı
             this.TopMost = false;
             this.ShowInTaskbar = true;
@@ -134,6 +138,56 @@ namespace WebViewKeyboardLauncher
                 System.Diagnostics.Debug.WriteLine("🛡️ DEBUG: Safety timer stopped");
             }
         }
+
+        private void LogKioskStatus()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WebViewKeyboardLauncher");
+                if (key != null)
+                {
+                    var kioskMode = key.GetValue("KioskMode");
+                    var fullscreenMode = key.GetValue("FullscreenMode");
+                    var homepage = key.GetValue("Homepage");
+
+                    System.Diagnostics.Debug.WriteLine("========= KIOSK STATUS =========");
+                    System.Diagnostics.Debug.WriteLine($"Registry KioskMode: {kioskMode}");
+                    System.Diagnostics.Debug.WriteLine($"Registry FullscreenMode: {fullscreenMode}");
+                    System.Diagnostics.Debug.WriteLine($"Registry Homepage: {homepage}");
+                    System.Diagnostics.Debug.WriteLine($"WebViewManager.IsKioskMode: {webViewManager?.IsKioskMode}");
+                    System.Diagnostics.Debug.WriteLine($"KeyPreview: {this.KeyPreview}");
+                    System.Diagnostics.Debug.WriteLine($"TopMost: {this.TopMost}");
+                    System.Diagnostics.Debug.WriteLine($"WindowState: {this.WindowState}");
+                    System.Diagnostics.Debug.WriteLine("===============================");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("❌ REGISTRY KEY NOT FOUND!");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ Registry read error: {ex.Message}");
+            }
+        }
+
+        private void SetDebugKioskMode()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WebViewKeyboardLauncher");
+                key?.SetValue("KioskMode", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                key?.SetValue("FullscreenMode", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                key?.SetValue("Homepage", "https://promanage.sanovel.com.tr/sanovel/ui", Microsoft.Win32.RegistryValueKind.String);
+
+                System.Diagnostics.Debug.WriteLine("🔧 DEBUG: Kiosk mode zorla aktif edildi!");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ DEBUG: Registry yazma hatası: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine("⚠️  Visual Studio'yu Administrator olarak çalıştırın!");
+            }
+        }
 #endif
 
         private void InitializeForm()
@@ -158,8 +212,6 @@ namespace WebViewKeyboardLauncher
 
             // WebViewManager setup
             webViewManager = new WebViewManager(webView);
-
-            // ✅ BASIT ÇÖZÜM: Sadece keyboard manager bağlantısı
             webViewManager.OnFocusReceived += () => keyboardManager.On();
 
 #if DEBUG
@@ -172,15 +224,19 @@ namespace WebViewKeyboardLauncher
             toolbar.KeyboardButtonClicked += Toolbar_KeyboardButtonClicked;
             toolbar.SetWebViewManager(webViewManager);
 
-            // Apply kiosk mode settings (basitleştirilmiş)
+            // Apply kiosk mode settings
             ApplyKioskModeToForm();
 
-            // Toolbar mode ayarı (basit)
+            // Toolbar mode ayarı
             if (webViewManager.IsKioskMode)
             {
                 toolbar.SetKioskMode(true);
-                System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode - Standard behavior");
+                System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode - Using normal z-index behavior");
             }
+
+#if DEBUG
+            LogKioskStatus();
+#endif
 
             toolbar.Show();
         }
@@ -189,24 +245,23 @@ namespace WebViewKeyboardLauncher
         {
             if (webViewManager?.IsKioskMode != true)
             {
-                // Normal mode
-                this.TopMost = false;
-                return;
+                return; // Normal mode
             }
 
-            System.Diagnostics.Debug.WriteLine("[MainForm] Applying kiosk mode settings");
+            System.Diagnostics.Debug.WriteLine("[MainForm] Applying kiosk mode - KEYS ONLY, NO Z-INDEX FORCING");
 
-            // Temel kiosk ayarları
+            // ✅ Form kontrolleri (kapanma engelleme)
             this.MaximizeBox = false;
             this.MinimizeBox = false;
             this.ControlBox = false;
             this.ShowInTaskbar = false;
 
-            // Keyboard blocking
-            this.KeyPreview = true;
-            this.KeyDown += MainForm_KeyDown;
+            // ✅ YENİ: Keyboard blocker'ı başlat
+            keyboardBlocker = new KeyboardBlocker(webViewManager, this);
+            keyboardBlocker.EmergencyExitRequested += OnEmergencyExit;
+            keyboardBlocker.StartBlocking();
 
-            // Fullscreen mode
+            // ✅ Fullscreen mode
             if (webViewManager.IsFullscreen)
             {
                 webViewManager.HideTaskbar();
@@ -214,35 +269,21 @@ namespace WebViewKeyboardLauncher
                 this.WindowState = FormWindowState.Maximized;
             }
 
-            System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode applied - Standard behavior");
+            System.Diagnostics.Debug.WriteLine("[MainForm] Kiosk mode applied - KeyboardBlocker started");
         }
 
-        private void MainForm_KeyDown(object? sender, KeyEventArgs e)
+        // ✅ YENİ: Emergency exit handler
+        private void OnEmergencyExit()
         {
-            if (webViewManager?.IsKioskMode != true) return;
-
-            // Block system key combinations in kiosk mode
-            switch (e.KeyCode)
+            if (MessageBox.Show("Exit kiosk mode?", "Kiosk Mode",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
-                case Keys.F4 when e.Alt: // Alt+F4
-                case Keys.Tab when e.Alt: // Alt+Tab
-                case Keys.Escape when e.Control: // Ctrl+Esc
-                case Keys.LWin: // Windows key
-                case Keys.RWin: // Windows key
-                    e.Handled = true;
-                    e.SuppressKeyPress = true;
-                    System.Diagnostics.Debug.WriteLine($"[MainForm] Blocked key combination: {e.KeyCode}");
-                    break;
-
-                // Emergency exit: Ctrl+Shift+Alt+E
-                case Keys.E when e.Control && e.Shift && e.Alt:
-                    if (MessageBox.Show("Exit kiosk mode?", "Kiosk Mode",
-                        MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-                    {
-                        ExitKioskMode();
-                    }
-                    e.Handled = true;
-                    break;
+                System.Diagnostics.Debug.WriteLine("✅ [EMERGENCY] User confirmed - Exiting kiosk mode");
+                ExitKioskMode();
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("❌ [EMERGENCY] User cancelled - Staying in kiosk mode");
             }
         }
 
@@ -253,6 +294,10 @@ namespace WebViewKeyboardLauncher
 #if DEBUG
             StopDebugSafetyTimer();
 #endif
+
+            // ✅ Keyboard blocker'ı durdur
+            keyboardBlocker?.StopBlocking();
+            keyboardBlocker = null;
 
             // Exit kiosk mode in WebViewManager
             webViewManager.ExitKioskMode();
@@ -271,9 +316,6 @@ namespace WebViewKeyboardLauncher
                 toolbar.SetKioskMode(false);
                 toolbar.Show();
             }
-
-            // Remove key blocking
-            this.KeyDown -= MainForm_KeyDown;
         }
 
         private void Toolbar_KeyboardButtonClicked(object? sender, EventArgs e)
@@ -289,61 +331,29 @@ namespace WebViewKeyboardLauncher
                 Invoke(new Action(() =>
                 {
                     webViewManager.NavigateHomepage();
-
-                    // Focus the form in kiosk mode
-                    if (webViewManager.IsKioskMode)
-                    {
-                        this.Activate();
-                        this.Focus();
-                        SetForegroundWindow(this.Handle);
-                    }
-
                     System.Diagnostics.Debug.WriteLine($"🌐 Uygulama başlatıldı - Kiosk Mode: {webViewManager.IsKioskMode}");
                 }));
             });
         }
 
-        // Override WndProc to block certain system messages in kiosk mode
-        protected override void WndProc(ref Message m)
-        {
-            if (webViewManager?.IsKioskMode == true)
-            {
-                const int WM_SYSCOMMAND = 0x0112;
-                const int SC_MOVE = 0xF010;
-                const int SC_SIZE = 0xF000;
-                const int SC_MINIMIZE = 0xF020;
-                const int SC_CLOSE = 0xF060;
-
-                switch (m.Msg)
-                {
-                    case WM_SYSCOMMAND:
-                        int command = m.WParam.ToInt32() & 0xFFF0;
-                        if (command == SC_MOVE || command == SC_SIZE ||
-                            command == SC_MINIMIZE || command == SC_CLOSE)
-                        {
-                            return;
-                        }
-                        break;
-                }
-            }
-
-            base.WndProc(ref m);
-        }
-
+        // ✅ KeyboardBlocker kullanarak ProcessCmdKey
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (webViewManager?.IsKioskMode == true)
+            if (keyboardBlocker?.ProcessCmdKey(ref msg, keyData) == true)
             {
-                switch (keyData)
-                {
-                    case Keys.Control | Keys.Shift | Keys.Escape: // Task Manager
-                    case Keys.Control | Keys.Alt | Keys.Delete: // Security screen
-                    case Keys.Alt | Keys.F4: // Close window
-                        return true; // Block the key
-                }
+                return true; // KeyboardBlocker engelledi
             }
-
             return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        // ✅ KeyboardBlocker kullanarak WndProc
+        protected override void WndProc(ref Message m)
+        {
+            if (keyboardBlocker?.ProcessWndProc(ref m) == true)
+            {
+                return; // KeyboardBlocker engelledi
+            }
+            base.WndProc(ref m);
         }
 
         protected override void SetVisibleCore(bool value)
@@ -366,6 +376,9 @@ namespace WebViewKeyboardLauncher
 #if DEBUG
                 StopDebugSafetyTimer();
 #endif
+
+                // ✅ KeyboardBlocker'ı temizle
+                keyboardBlocker?.Dispose();
 
                 keyboardManager?.Cleanup();
                 toolbar?.Dispose();
@@ -394,25 +407,5 @@ namespace WebViewKeyboardLauncher
             keyboardManager?.Cleanup();
             base.OnFormClosing(e);
         }
-
-#if DEBUG
-        private void SetDebugKioskMode()
-        {
-            try
-            {
-                using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WebViewKeyboardLauncher");
-                key?.SetValue("KioskMode", 1, Microsoft.Win32.RegistryValueKind.DWord);
-                key?.SetValue("FullscreenMode", 1, Microsoft.Win32.RegistryValueKind.DWord);
-                key?.SetValue("Homepage", "https://promanage.sanovel.com.tr/sanovel/ui", Microsoft.Win32.RegistryValueKind.String);
-
-                System.Diagnostics.Debug.WriteLine("🔧 DEBUG: Kiosk mode zorla aktif edildi!");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"❌ DEBUG: Registry yazma hatası: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine("⚠️  Visual Studio'yu Administrator olarak çalıştırın!");
-            }
-        }
-#endif
     }
 }

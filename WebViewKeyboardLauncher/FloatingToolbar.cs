@@ -53,19 +53,8 @@ namespace WebViewKeyboardLauncher
         {
             _kioskMode = kioskMode;
 
-            // Settings button'ı HER ZAMAN göster
-            _settingsButton.Visible = true;
-            this.Size = new Size(120, 50);
-
-            // Butonları normal konumlarında tut
-            _keyboardButton.Location = new Point(5, 5);
-            _keyboardButton.Size = new Size(50, 40);
-            _settingsButton.Location = new Point(65, 5);
-            _settingsButton.Size = new Size(50, 40);
-
-            this.TopMost = true;
-
-            System.Diagnostics.Debug.WriteLine($"[FloatingToolbar] Mode: {(kioskMode ? "Kiosk" : "Normal")} - Standard behavior");
+            // ✅ SADECE debug bilgisi - UI değişikliği YOK
+            System.Diagnostics.Debug.WriteLine($"[FloatingToolbar] Kiosk Mode: {kioskMode} - Using normal z-index behavior");
         }
 
         private void SetupToolbar()

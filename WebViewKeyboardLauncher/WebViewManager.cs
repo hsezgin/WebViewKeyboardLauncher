@@ -33,10 +33,6 @@ public class WebViewManager
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetActiveWindow();
-
-    // Toolbar referansı - Z-order koruma için
-    public event Action? OnKeyboardOpened;
-
     public WebViewManager(WebView2 webView)
     {
         _webView = webView ?? throw new ArgumentNullException(nameof(webView));
@@ -139,6 +135,13 @@ public class WebViewManager
 
     private void RegisterFocusAndMessageListeners()
     {
+        // ✅ YENİ: Sağ tık menüsü ve dev tools'u tamamen kapat
+        _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+        _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+        _webView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+
+        Debug.WriteLine("[WebViewManager] Context menu and dev tools disabled");
+
         // ✅ THROTTLE - Focus event'lerini de throttle et
         DateTime lastFocusEvent = DateTime.MinValue;
         const int FOCUS_COOLDOWN_MS = 300;
@@ -153,24 +156,24 @@ public class WebViewManager
                     var now = DateTime.Now;
                     if ((now - lastFocusEvent).TotalMilliseconds < FOCUS_COOLDOWN_MS)
                     {
-                        Debug.WriteLine($"🔍 [THROTTLE] Focus ignored - cooldown active ({(now - lastFocusEvent).TotalMilliseconds}ms)");
+                        Debug.WriteLine("[THROTTLE] Focus ignored - cooldown active (" + (now - lastFocusEvent).TotalMilliseconds + "ms)");
                         return;
                     }
 
                     lastFocusEvent = now;
-                    Debug.WriteLine("🔍 [DEBUG] WebView Focus event received");
+                    Debug.WriteLine("[DEBUG] WebView Focus event received");
 
                     // TabTip'i aç
                     OnFocusReceived?.Invoke();
 
-                    Debug.WriteLine("🔍 [DEBUG] Focus events completed");
+                    Debug.WriteLine("[DEBUG] Focus events completed");
                     break;
                 case "refresh":
                     Debug.WriteLine("[WebViewManager] Refresh mesajı alındı");
                     Reload();
                     break;
                 default:
-                    Debug.WriteLine($"[WebViewManager] Bilinmeyen mesaj: {message}");
+                    Debug.WriteLine("[WebViewManager] Bilinmeyen mesaj: " + message);
                     break;
             }
         };
@@ -178,7 +181,7 @@ public class WebViewManager
         // JavaScript'i basitleştir - sadece gerçek input focus'ları dinle
         string script = @"
         window.addEventListener('load', () => {
-            console.log('🔍 [WEB DEBUG] Page loaded, setting up THROTTLED focus listeners');
+            console.log('Page loaded, setting up THROTTLED focus listeners');
             
             let lastFocusTime = 0;
             const FOCUS_THROTTLE = 300; // 300ms throttle
@@ -186,11 +189,11 @@ public class WebViewManager
             document.addEventListener('focusin', function(e) {
                 const now = Date.now();
                 if (now - lastFocusTime < FOCUS_THROTTLE) {
-                    console.log('🔍 [WEB THROTTLE] Focus ignored - too frequent');
+                    console.log('Focus ignored - too frequent');
                     return;
                 }
                 
-                console.log('🔍 [WEB DEBUG] Focus event on:', e.target.tagName, e.target.type || 'no-type');
+                console.log('Focus event on:', e.target.tagName, e.target.type || 'no-type');
                 
                 const target = e.target;
                 const needsKeyboard = (
@@ -203,10 +206,48 @@ public class WebViewManager
                 
                 if (needsKeyboard) {
                     lastFocusTime = now;
-                    console.log('🔍 [WEB DEBUG] Triggering keyboard for:', target.tagName, target.type);
+                    console.log('Triggering keyboard for:', target.tagName, target.type);
                     window.chrome.webview.postMessage('focus');
                 } else {
-                    console.log('🔍 [WEB DEBUG] Focus ignored for:', target.tagName);
+                    console.log('Focus ignored for:', target.tagName);
+                }
+            }, true);
+
+            // ✅ YENİ: Sağ tık engelleme (ek güvenlik)
+            document.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                console.log('Right-click blocked');
+                return false;
+            }, true);
+
+            // ✅ YENİ: F12 ve diğer dev tools tuşlarını engelle
+            document.addEventListener('keydown', function(e) {
+                // F12 - Developer Tools
+                if (e.key === 'F12') {
+                    e.preventDefault();
+                    console.log('F12 blocked');
+                    return false;
+                }
+                
+                // Ctrl+Shift+I - Developer Tools
+                if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+                    e.preventDefault();
+                    console.log('Ctrl+Shift+I blocked');
+                    return false;
+                }
+                
+                // Ctrl+Shift+C - Inspect Element
+                if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+                    e.preventDefault();
+                    console.log('Ctrl+Shift+C blocked');
+                    return false;
+                }
+                
+                // Ctrl+U - View Source
+                if (e.ctrlKey && e.key === 'u') {
+                    e.preventDefault();
+                    console.log('Ctrl+U blocked');
+                    return false;
                 }
             }, true);
         });
