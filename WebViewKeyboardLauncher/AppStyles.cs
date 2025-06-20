@@ -15,6 +15,7 @@
  */
 
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 
 namespace WebViewKeyboardLauncher
@@ -44,8 +45,8 @@ namespace WebViewKeyboardLauncher
         #endregion
 
         #region Fonts
-        public static readonly Font ButtonFont = new Font("Segoe UI Emoji", 13F, FontStyle.Regular);
-        public static readonly Font KeyboardFont = new Font("Segoe UI", 20F, FontStyle.Regular); // 24'den 20'ye düşürdük
+        public static readonly Font ButtonFont = new Font("Segoe UI Symbol", 13F, FontStyle.Regular);
+        public static readonly Font KeyboardFont = new Font("Segoe UI Symbol", 40F, FontStyle.Bold);
         #endregion
 
         #region Button Styles
@@ -57,21 +58,20 @@ namespace WebViewKeyboardLauncher
             button.Font = ButtonFont;
             button.FlatAppearance.BorderSize = 0;
             button.FlatAppearance.MouseOverBackColor = ButtonHover;
-            button.FlatAppearance.MouseDownBackColor = ButtonPressed;
+            button.FlatAppearance.MouseDownBackColor = button.BackColor;   
             button.TextAlign = ContentAlignment.MiddleCenter;
             button.UseCompatibleTextRendering = false;
             button.UseVisualStyleBackColor = false;
             button.Margin = new Padding(0);
             button.Padding = new Padding(0);
 
-            // Focus border'ını kaldır
-            button.TabStop = false; // Tab ile focus almasını engelle
+            button.TabStop = false; 
         }
 
         public static void ApplyKeyboardButton(Button button)
         {
-            button.BackColor = ButtonNormal;
-            button.ForeColor = TextBlack;
+            button.BackColor = TextWhite;
+            button.ForeColor = ButtonNormal;
             button.FlatStyle = FlatStyle.Flat;
             button.Font = KeyboardFont;
             button.FlatAppearance.BorderSize = 0; // Border'ı tamamen kaldır

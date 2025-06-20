@@ -37,11 +37,12 @@ namespace WebViewKeyboardLauncher
             // Default değerler (bunlar AppStyles.ApplyKeyboardButton ile ezilecek)
             this.Text = "⌨️";
             this.FlatStyle = FlatStyle.Standard;
-            this.Font = new Font("Segoe UI", 16, FontStyle.Regular);
+            this.Font = new Font("Segoe UI Ico", 16, FontStyle.Regular);
             this.BackColor = Color.LightGray;
-            this.ForeColor = Color.Black;
+            this.ForeColor = Color.White;
             this.FlatAppearance.BorderSize = 1;
-            this.TextAlign = ContentAlignment.MiddleCenter;
+            this.TextAlign = ContentAlignment.TopCenter;
+
             this.UseCompatibleTextRendering = false;
             this.UseVisualStyleBackColor = false;
             this.Margin = new Padding(0);
@@ -92,6 +93,31 @@ namespace WebViewKeyboardLauncher
                 }
             }
             base.OnMouseMove(e);
+        }
+        protected override void OnPaint(PaintEventArgs pevent)
+        {
+            // Base çizmesini engelle
+            // base.OnPaint(pevent);
+
+            // Arka planı çiz
+            using (var brush = new SolidBrush(this.BackColor))
+            {
+                pevent.Graphics.FillRectangle(brush, this.ClientRectangle);
+            }
+
+            // Text'i tam ortaya çiz
+            var rect = this.ClientRectangle;
+            rect.Y -= 0; // 3px yukarı kaydır (bu değeri ayarlayın)
+            rect.Inflate(-1, -1); // 2px kenarlık bırak
+
+            using (var brush = new SolidBrush(this.ForeColor))
+            {
+                var sf = new StringFormat();
+                sf.Alignment = StringAlignment.Center;
+                sf.LineAlignment = StringAlignment.Center;
+
+                pevent.Graphics.DrawString(this.Text, this.Font, brush, rect, sf);
+            }
         }
     }
 }

@@ -59,7 +59,7 @@ namespace WebViewKeyboardLauncher
 
             // Icon'ları tekrar set et (style uygulandıktan sonra)
             this.btnRefresh.Text = "🔄";
-            this.btnRestart.Text = "⏻";
+            this.btnRestart.Text = "🔴";
         }
 
         private void InitializeTimers()

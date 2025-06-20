@@ -37,7 +37,7 @@ public class KeyboardManager
         var now = DateTime.Now;
         if ((now - _lastTabTipOpen).TotalMilliseconds < TABTIP_COOLDOWN_MS)
         {
-            Debug.WriteLine($"🔍 [THROTTLE] TabTip ignored - cooldown active ({(now - _lastTabTipOpen).TotalMilliseconds}ms)");
+            Debug.WriteLine($"[THROTTLE] TabTip ignored - cooldown active ({(now - _lastTabTipOpen).TotalMilliseconds}ms)");
             return;
         }
 

@@ -1,5 +1,5 @@
 ﻿/*
- * WebViewManager.cs - Z-Index Sorun Çözümü
+ * WebViewManager.cs - Script Injection Sorun Çözümü
  */
 
 using Microsoft.Web.WebView2.Core;
@@ -23,6 +23,7 @@ public class WebViewManager
     private bool _cachedKioskMode = false;
     private bool _cachedFullscreenMode = false;
     private string _cachedHomepageUrl = DEFAULT_URL;
+    private bool _scriptInjected = false; // ✅ YENİ: Script injection takibi
 
     // TabTip pencere takibi için
     [DllImport("user32.dll", SetLastError = true)]
@@ -33,6 +34,7 @@ public class WebViewManager
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetActiveWindow();
+
     public WebViewManager(WebView2 webView)
     {
         _webView = webView ?? throw new ArgumentNullException(nameof(webView));
@@ -123,8 +125,19 @@ public class WebViewManager
         {
             if (task.Status == TaskStatus.RanToCompletion)
             {
-                RegisterFocusAndMessageListeners();
-                NavigateHomepage();
+                // ✅ UI thread'de çalıştır
+                if (_webView.InvokeRequired)
+                {
+                    _webView.Invoke(new Action(() => {
+                        RegisterFocusAndMessageListeners();
+                        NavigateHomepage();
+                    }));
+                }
+                else
+                {
+                    RegisterFocusAndMessageListeners();
+                    NavigateHomepage();
+                }
             }
             else
             {
@@ -135,7 +148,16 @@ public class WebViewManager
 
     private void RegisterFocusAndMessageListeners()
     {
-        // ✅ YENİ: Sağ tık menüsü ve dev tools'u tamamen kapat
+        if (_webView.CoreWebView2 == null)
+        {
+            Debug.WriteLine("[WebViewManager] CoreWebView2 null - RegisterFocusAndMessageListeners failed");
+            return;
+        }
+
+        // ✅ ÇOKLU SAYFA KONTROLÜ: NavigationCompleted'da script inject et
+        _webView.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
+
+        // ✅ WebView2 ayarları
         _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
         _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
         _webView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
@@ -149,6 +171,8 @@ public class WebViewManager
         _webView.CoreWebView2.WebMessageReceived += (sender, e) =>
         {
             string message = e.TryGetWebMessageAsString();
+            Debug.WriteLine($"[WebViewManager] WebMessage received: {message}");
+
             switch (message)
             {
                 case "focus":
@@ -168,92 +192,181 @@ public class WebViewManager
 
                     Debug.WriteLine("[DEBUG] Focus events completed");
                     break;
+
+                case "script_loaded":
+                    Debug.WriteLine("✅ [WebViewManager] Script başarıyla yüklendi!");
+                    _scriptInjected = true;
+                    break;
+
                 case "refresh":
                     Debug.WriteLine("[WebViewManager] Refresh mesajı alındı");
                     Reload();
                     break;
+
                 default:
                     Debug.WriteLine("[WebViewManager] Bilinmeyen mesaj: " + message);
                     break;
             }
         };
 
-        // JavaScript'i basitleştir - sadece gerçek input focus'ları dinle
-        string script = @"
-        window.addEventListener('load', () => {
-            console.log('Page loaded, setting up THROTTLED focus listeners');
+        // ✅ İlk script injection
+        InjectFocusScript();
+
+        Debug.WriteLine("[WebViewManager] Focus and message listeners registered");
+    }
+
+    // ✅ YENİ: NavigationCompleted event handler
+    private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        Debug.WriteLine($"[WebViewManager] Navigation completed: {e.IsSuccess}, URL: {_webView.CoreWebView2?.Source}");
+
+        if (e.IsSuccess)
+        {
+            // Her sayfa yüklendiğinde script'i tekrar inject et
+            InjectFocusScript();
+        }
+    }
+
+    // ✅ YENİ: Script injection metodu
+    private async void InjectFocusScript()
+    {
+        if (_webView.CoreWebView2 == null)
+        {
+            Debug.WriteLine("[WebViewManager] CoreWebView2 null - Script injection failed");
+            return;
+        }
+
+        try
+        {
+            // JavaScript'i basitleştir ve debug bilgisi ekle
+            string script = @"
+(function() {
+    console.log('🚀 WebView Keyboard Launcher Script Loading...');
+    
+    // Önceki listener'ları temizle
+    if (window.webviewKeyboardHandler) {
+        console.log('♻️ Cleaning previous listeners...');
+        document.removeEventListener('focusin', window.webviewKeyboardHandler, true);
+        document.removeEventListener('contextmenu', window.webviewContextHandler, true);
+        document.removeEventListener('keydown', window.webviewKeyHandler, true);
+    }
+    
+    let lastFocusTime = 0;
+    const FOCUS_THROTTLE = 300; // 300ms throttle
+    
+    // Focus handler
+    window.webviewKeyboardHandler = function(e) {
+        const now = Date.now();
+        if (now - lastFocusTime < FOCUS_THROTTLE) {
+            console.log('⏰ Focus ignored - too frequent');
+            return;
+        }
+        
+        console.log('🎯 Focus event on:', e.target.tagName, e.target.type || 'no-type');
+        
+        const target = e.target;
+        const needsKeyboard = (
+            target.tagName === 'INPUT' && 
+            ['text', 'email', 'password', 'number', 'tel', 'url', 'search'].includes(target.type)
+        ) || 
+        target.tagName === 'TEXTAREA' || 
+        target.contentEditable === 'true' || 
+        target.getAttribute('role') === 'textbox';
+        
+        if (needsKeyboard) {
+            lastFocusTime = now;
+            console.log('⌨️ Triggering keyboard for:', target.tagName, target.type);
             
-            let lastFocusTime = 0;
-            const FOCUS_THROTTLE = 300; // 300ms throttle
-            
-            document.addEventListener('focusin', function(e) {
-                const now = Date.now();
-                if (now - lastFocusTime < FOCUS_THROTTLE) {
-                    console.log('Focus ignored - too frequent');
-                    return;
-                }
-                
-                console.log('Focus event on:', e.target.tagName, e.target.type || 'no-type');
-                
-                const target = e.target;
-                const needsKeyboard = (
-                    target.tagName === 'INPUT' && 
-                    ['text', 'email', 'password', 'number', 'tel', 'url', 'search'].includes(target.type)
-                ) || 
-                target.tagName === 'TEXTAREA' || 
-                target.contentEditable === 'true' || 
-                target.getAttribute('role') === 'textbox';
-                
-                if (needsKeyboard) {
-                    lastFocusTime = now;
-                    console.log('Triggering keyboard for:', target.tagName, target.type);
-                    window.chrome.webview.postMessage('focus');
-                } else {
-                    console.log('Focus ignored for:', target.tagName);
-                }
-            }, true);
+            try {
+                window.chrome.webview.postMessage('focus');
+                console.log('✅ Focus message sent successfully');
+            } catch (error) {
+                console.error('❌ Error sending focus message:', error);
+            }
+        } else {
+            console.log('🚫 Focus ignored for:', target.tagName);
+        }
+    };
 
-            // ✅ YENİ: Sağ tık engelleme (ek güvenlik)
-            document.addEventListener('contextmenu', function(e) {
-                e.preventDefault();
-                console.log('Right-click blocked');
-                return false;
-            }, true);
+    // Context menu blocker
+    window.webviewContextHandler = function(e) {
+        e.preventDefault();
+        console.log('🚫 Right-click blocked');
+        return false;
+    };
 
-            // ✅ YENİ: F12 ve diğer dev tools tuşlarını engelle
-            document.addEventListener('keydown', function(e) {
-                // F12 - Developer Tools
-                if (e.key === 'F12') {
-                    e.preventDefault();
-                    console.log('F12 blocked');
-                    return false;
-                }
-                
-                // Ctrl+Shift+I - Developer Tools
-                if (e.ctrlKey && e.shiftKey && e.key === 'I') {
-                    e.preventDefault();
-                    console.log('Ctrl+Shift+I blocked');
-                    return false;
-                }
-                
-                // Ctrl+Shift+C - Inspect Element
-                if (e.ctrlKey && e.shiftKey && e.key === 'C') {
-                    e.preventDefault();
-                    console.log('Ctrl+Shift+C blocked');
-                    return false;
-                }
-                
-                // Ctrl+U - View Source
-                if (e.ctrlKey && e.key === 'u') {
-                    e.preventDefault();
-                    console.log('Ctrl+U blocked');
-                    return false;
-                }
-            }, true);
-        });
-    ";
+    // Key blocker for dev tools
+    window.webviewKeyHandler = function(e) {
+        // F12 - Developer Tools
+        if (e.key === 'F12') {
+            e.preventDefault();
+            console.log('🚫 F12 blocked');
+            return false;
+        }
+        
+        // Ctrl+Shift+I - Developer Tools
+        if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+            e.preventDefault();
+            console.log('🚫 Ctrl+Shift+I blocked');
+            return false;
+        }
+        
+        // Ctrl+Shift+C - Inspect Element
+        if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+            e.preventDefault();
+            console.log('🚫 Ctrl+Shift+C blocked');
+            return false;
+        }
+        
+        // Ctrl+U - View Source
+        if (e.ctrlKey && e.key === 'u') {
+            e.preventDefault();
+            console.log('🚫 Ctrl+U blocked');
+            return false;
+        }
+    };
+    
+    // Event listener'ları ekle
+    document.addEventListener('focusin', window.webviewKeyboardHandler, true);
+    document.addEventListener('contextmenu', window.webviewContextHandler, true);
+    document.addEventListener('keydown', window.webviewKeyHandler, true);
+    
+    console.log('✅ All event listeners added successfully');
+    
+    // C# tarafına script yüklendiğini bildir
+    try {
+        window.chrome.webview.postMessage('script_loaded');
+        console.log('📡 Script loaded notification sent');
+    } catch (error) {
+        console.error('❌ Error sending script loaded notification:', error);
+    }
+    
+    console.log('🎉 WebView Keyboard Launcher Script Ready!');
+})();
+";
 
-        _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+            // Script'i ekle
+            await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+            Debug.WriteLine("✅ [WebViewManager] Focus script injected");
+
+            // Sayfa zaten yüklüyse script'i hemen çalıştır
+            if (_webView.CoreWebView2.Source != "about:blank" && !string.IsNullOrEmpty(_webView.CoreWebView2.Source))
+            {
+                try
+                {
+                    await _webView.CoreWebView2.ExecuteScriptAsync(script);
+                    Debug.WriteLine("✅ [WebViewManager] Script immediately executed for current page");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"⚠️ [WebViewManager] Immediate script execution failed: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"❌ [WebViewManager] Script injection error: {ex.Message}");
+        }
     }
 
     public string GetHomepageUrl()
@@ -414,6 +527,7 @@ public class WebViewManager
 
         Debug.WriteLine($"Aktif konum: {GetRegistryKey()}");
         Debug.WriteLine($"Cache: Kiosk={_cachedKioskMode}, Fullscreen={_cachedFullscreenMode}");
+        Debug.WriteLine($"Script Injected: {_scriptInjected}");
         Debug.WriteLine("========================");
     }
 }

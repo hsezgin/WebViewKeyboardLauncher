@@ -65,7 +65,7 @@ namespace WebViewKeyboardLauncher
             this.settingsButton.Name = "settingsButton";
             this.settingsButton.Size = new System.Drawing.Size(50, 40);
             this.settingsButton.TabIndex = 1;
-            this.settingsButton.Text = "⚙️";
+            this.settingsButton.Text = "🔧";
 
             // 
             // FloatingToolbar - Stil AppStyles'dan uygulanacak
